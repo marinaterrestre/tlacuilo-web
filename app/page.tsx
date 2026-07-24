@@ -84,7 +84,7 @@ export default async function Home() {
       <Header sticky={false} />
 
       {/* ============ HERO · Acacia grande + counters + manifiesto ============ */}
-      <section className="px-10 pt-13 pb-11 border-b border-rule max-md:px-5 max-md:pt-9 max-md:pb-7">
+      <section className="px-10 pt-16 pb-16 border-b border-rule max-md:px-5 max-md:pt-12 max-md:pb-12">
         <h1 className="font-acacia uppercase text-[clamp(34px,5.2vw,78px)] leading-[1.04] tracking-[0.01em] max-w-[16ch] text-text">
           Préstamo gratis de libros, vinilos, arte y objetos físicos.
         </h1>

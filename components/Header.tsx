@@ -30,14 +30,22 @@ type HeaderProps = {
  */
 export default function Header({ slim = false, sticky = true }: HeaderProps) {
   const [user, setUser] = useState<User | null>(null)
+  // Hasta que el primer getUser() responda, no mostramos ni ENTRAR ni
+  // MI TLACUILO. Evita el flash de "ENTRAR" al navegar entre pages
+  // cuando el componente se remonta y user parte como null antes del fetch.
+  const [authChecked, setAuthChecked] = useState(false)
   const [q, setQ] = useState('')
   const [avisos, setAvisos] = useState<number>(0)
   const router = useRouter()
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => setUser(user))
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user)
+      setAuthChecked(true)
+    })
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
+      setAuthChecked(true)
     })
     return () => sub.subscription.unsubscribe()
   }, [])
@@ -120,7 +128,13 @@ export default function Header({ slim = false, sticky = true }: HeaderProps) {
               AVISOS <span className="accent-detail">[{avisos}]</span>
             </Link>
           )}
-          <Link href={miTlacuiloHref} className="font-mono text-[clamp(11px,1.05vw,14px)] tracking-[0.12em] uppercase text-text hover:text-text-bright transition-colors">
+          <Link
+            href={miTlacuiloHref}
+            className={`font-mono text-[clamp(11px,1.05vw,14px)] tracking-[0.12em] uppercase text-text hover:text-text-bright transition-opacity duration-150 ${
+              authChecked ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+            aria-hidden={!authChecked}
+          >
             {user ? 'MI TLACUILO' : 'ENTRAR'}
           </Link>
         </div>
