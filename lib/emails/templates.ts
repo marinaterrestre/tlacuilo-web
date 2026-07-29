@@ -11,7 +11,7 @@
  *   import { emailPrestamoConfirmado } from '@/lib/emails/templates'
  *   const { subject, html, text } = emailPrestamoConfirmado({...})
  *   await resend.emails.send({
- *     from: 'tlacuilo@tlacuilo.org',
+ *     from: 'hola@tlacuilo.org',
  *     to: userEmail,
  *     subject, html, text
  *   })
@@ -112,7 +112,7 @@ function shell(title: string, body: string, cta?: { label: string; href: string 
               <p style="margin: 4px 0 0 0;">cdmx · 2026</p>
               <p style="margin: 12px 0 0 0; font-size: 10px;">
                 este correo es parte del ciclo de préstamo. <br>
-                escríbenos a <a href="mailto:tlacuilo@tlacuilo.org" style="color: #9091c4;">tlacuilo@tlacuilo.org</a> si algo se rompió.
+                escríbenos a <a href="mailto:hola@tlacuilo.org" style="color: #9091c4;">hola@tlacuilo.org</a> si algo se rompió.
               </p>
             </td>
           </tr>
@@ -153,7 +153,7 @@ son 30 días. son tuyos hasta entonces.
 cuídalos. léelos. devuélvelos.
 
 tlacuilo. biblioteca pública en coyoacán.
-tlacuilo@tlacuilo.org
+hola@tlacuilo.org
 `.trim()
 
   const body = `
@@ -210,7 +210,7 @@ ${librosToText(libros)}
 
 fecha límite: ${fechaTexto}
 
-si necesitas más tiempo, escríbenos a tlacuilo@tlacuilo.org.
+si necesitas más tiempo, escríbenos a hola@tlacuilo.org.
 si ya terminaste, agéndate para regresar a la biblioteca.
 
 tlacuilo. biblioteca pública en coyoacán.
@@ -331,14 +331,13 @@ ${librosToText(libros)}
 
 visita propuesta: ${fechaTexto}
 bloque: ${bloque}
-dónde: ${DIRECCION_BIBLIOTECA}
 
 la biblioteca va a preparar tus objetos y te mandamos OTRO correo
-cuando tu reserva quede confirmada. 12 horas antes de tu visita
-te llega además un recordatorio.
+con la dirección y tu horario cuando tu reserva quede confirmada.
+12 horas antes de tu visita te llega además un recordatorio.
 
 tlacuilo. biblioteca pública en coyoacán.
-tlacuilo@tlacuilo.org
+hola@tlacuilo.org
 `.trim()
 
   const body = `
@@ -359,14 +358,10 @@ tlacuilo@tlacuilo.org
       <span style="color: #888;">bloque</span><br>
       <span style="color: #e8e8f0;">${escapeHtml(bloque)}</span>
     </p>
-    <p style="margin: 0 0 12px 0; font-size: 14px;">
-      <span style="color: #888;">dónde</span><br>
-      <span style="color: #e8e8f0;">${escapeHtml(DIRECCION_BIBLIOTECA)}</span>
-    </p>
     <p style="margin: 16px 0 0 0; font-size: 13px; color: #888;">
       la biblioteca va a preparar tus objetos y te mandamos otro correo
-      cuando tu reserva quede confirmada. 12 horas antes de tu visita
-      te llega además un recordatorio.
+      con la dirección y tu horario cuando tu reserva quede confirmada.
+      12 horas antes de tu visita te llega además un recordatorio.
     </p>
   `
 
@@ -383,8 +378,9 @@ tlacuilo@tlacuilo.org
 // va a la biblioteca, no al lector
 // ============================================
 export const EMAILS_EQUIPO = [
-  'marina@tlacuilo.org',
-  'sammantha@tlacuilo.org',
+  'tlacuilo.biblioteca@gmail.com',
+  'sammantha.lucia@gmail.com',
+  'marinaorracal@gmail.com',
 ]
 
 export function emailNuevaReservaEquipo(params: {
@@ -410,7 +406,6 @@ ${librosToText(libros)}
 
 viene: ${fechaTexto}
 bloque: ${bloque}
-dónde: ${DIRECCION_BIBLIOTECA}
 
 revisa y gestiona en tlacuilo.org/admin/prestamos
 `.trim()
@@ -431,13 +426,9 @@ revisa y gestiona en tlacuilo.org/admin/prestamos
       <span style="color: #888;">viene</span><br>
       <span style="color: #9091c4; font-weight: 500; font-size: 16px;">${escapeHtml(fechaTexto)}</span>
     </p>
-    <p style="margin: 0 0 6px 0; font-size: 14px;">
+    <p style="margin: 0 0 12px 0; font-size: 14px;">
       <span style="color: #888;">bloque</span><br>
       <span style="color: #e8e8f0;">${escapeHtml(bloque)}</span>
-    </p>
-    <p style="margin: 0 0 12px 0; font-size: 14px;">
-      <span style="color: #888;">dónde</span><br>
-      <span style="color: #e8e8f0;">${escapeHtml(DIRECCION_BIBLIOTECA)}</span>
     </p>
   `
 
@@ -475,7 +466,6 @@ tu visita a la biblioteca es en menos de 12 horas:
 
 cuándo: ${fechaTexto}
 bloque: ${bloque}
-dónde: ${DIRECCION_BIBLIOTECA}
 
 tu morral apartado:
 
@@ -503,13 +493,9 @@ tlacuilo. biblioteca pública en coyoacán.
       <span style="color: #888;">cuándo</span><br>
       <span style="color: #9091c4; font-weight: 500; font-size: 16px;">${escapeHtml(fechaTexto)}</span>
     </p>
-    <p style="margin: 0 0 6px 0; font-size: 14px;">
+    <p style="margin: 0 0 20px 0; font-size: 14px;">
       <span style="color: #888;">bloque</span><br>
       <span style="color: #e8e8f0;">${escapeHtml(bloque)}</span>
-    </p>
-    <p style="margin: 0 0 20px 0; font-size: 14px;">
-      <span style="color: #888;">dónde</span><br>
-      <span style="color: #e8e8f0;">${escapeHtml(DIRECCION_BIBLIOTECA)}</span>
     </p>
     <p style="margin: 0 0 8px 0; font-size: 14px; color: #c5c5e8;">tu morral apartado:</p>
     <ul style="margin: 0 0 28px 0; padding-left: 20px; list-style: '· ';">

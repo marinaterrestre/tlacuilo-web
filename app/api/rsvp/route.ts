@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     )
 
   if (!token || !['si', 'no'].includes(r) || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return pagina('algo se rompió', 'este enlace no es válido. escríbenos a tlacuilo@tlacuilo.org.')
+    return pagina('algo se rompió', 'este enlace no es válido. escríbenos a hola@tlacuilo.org.')
   }
 
   const admin = createClient(
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
   if (!ancla || ancla.status !== 'apartado' || !ancla.visit_at) {
     return pagina(
       'este enlace ya no aplica',
-      'la visita ya pasó, ya se confirmó en la biblioteca, o fue cancelada. si algo no cuadra: tlacuilo@tlacuilo.org.'
+      'la visita ya pasó, ya se confirmó en la biblioteca, o fue cancelada. si algo no cuadra: hola@tlacuilo.org.'
     )
   }
 
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
       .eq('user_id', ancla.user_id)
       .eq('visit_at', ancla.visit_at)
       .eq('status', 'apartado')
-    return pagina('nos vemos.', 'tu visita queda confirmada. tus objetos te esperan en Europa 13, Coyoacán.')
+    return pagina('nos vemos.', 'tu visita queda confirmada. la dirección va en el correo de tu reserva confirmada.')
   }
 
   await admin
