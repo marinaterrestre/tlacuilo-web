@@ -11,7 +11,7 @@
  *   import { emailPrestamoConfirmado } from '@/lib/emails/templates'
  *   const { subject, html, text } = emailPrestamoConfirmado({...})
  *   await resend.emails.send({
- *     from: 'hola@tlacuilo.org',
+ *     from: 'tlacuilo@tlacuilo.org',
  *     to: userEmail,
  *     subject, html, text
  *   })
@@ -112,7 +112,7 @@ function shell(title: string, body: string, cta?: { label: string; href: string 
               <p style="margin: 4px 0 0 0;">cdmx · 2026</p>
               <p style="margin: 12px 0 0 0; font-size: 10px;">
                 este correo es parte del ciclo de préstamo. <br>
-                escríbenos a <a href="mailto:hola@tlacuilo.org" style="color: #9091c4;">hola@tlacuilo.org</a> si algo se rompió.
+                escríbenos a <a href="mailto:tlacuilo@tlacuilo.org" style="color: #9091c4;">tlacuilo@tlacuilo.org</a> si algo se rompió.
               </p>
             </td>
           </tr>
@@ -153,7 +153,7 @@ son 30 días. son tuyos hasta entonces.
 cuídalos. léelos. devuélvelos.
 
 tlacuilo. biblioteca pública en coyoacán.
-hola@tlacuilo.org
+tlacuilo@tlacuilo.org
 `.trim()
 
   const body = `
@@ -210,7 +210,7 @@ ${librosToText(libros)}
 
 fecha límite: ${fechaTexto}
 
-si necesitas más tiempo, escríbenos a hola@tlacuilo.org.
+si necesitas más tiempo, escríbenos a tlacuilo@tlacuilo.org.
 si ya terminaste, agéndate para regresar a la biblioteca.
 
 tlacuilo. biblioteca pública en coyoacán.
@@ -337,7 +337,7 @@ con la dirección y tu horario cuando tu reserva quede confirmada.
 12 horas antes de tu visita te llega además un recordatorio.
 
 tlacuilo. biblioteca pública en coyoacán.
-hola@tlacuilo.org
+tlacuilo@tlacuilo.org
 `.trim()
 
   const body = `

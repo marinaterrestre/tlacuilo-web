@@ -189,10 +189,10 @@ export default async function Home() {
               → booklet
             </Link>
             <a
-              href="mailto:hola@tlacuilo.org"
+              href="mailto:tlacuilo@tlacuilo.org"
               className="hover:text-text-bright transition-colors"
             >
-              → hola@tlacuilo.org
+              → tlacuilo@tlacuilo.org
             </a>
           </div>
 

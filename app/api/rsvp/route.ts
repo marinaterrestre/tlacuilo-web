@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     )
 
   if (!token || !['si', 'no'].includes(r) || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return pagina('algo se rompió', 'este enlace no es válido. escríbenos a hola@tlacuilo.org.')
+    return pagina('algo se rompió', 'este enlace no es válido. escríbenos a tlacuilo@tlacuilo.org.')
   }
 
   const admin = createClient(
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
   if (!ancla || ancla.status !== 'apartado' || !ancla.visit_at) {
     return pagina(
       'este enlace ya no aplica',
-      'la visita ya pasó, ya se confirmó en la biblioteca, o fue cancelada. si algo no cuadra: hola@tlacuilo.org.'
+      'la visita ya pasó, ya se confirmó en la biblioteca, o fue cancelada. si algo no cuadra: tlacuilo@tlacuilo.org.'
     )
   }
 

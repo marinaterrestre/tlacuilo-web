@@ -180,7 +180,7 @@ export default function ManifestoPage() {
           <a href="https://instagram.com/tlacuilobiblioteca" target="_blank" rel="noreferrer" className="text-text no-underline hover:text-text-bright transition-colors">@tlacuilobiblioteca</a>
           <Link href="/manifesto" className="text-text no-underline hover:text-text-bright transition-colors">manifiesto</Link>
           <Link href="/biblioteca" className="text-text no-underline hover:text-text-bright transition-colors">catálogo</Link>
-          <a href="mailto:hola@tlacuilo.mx" className="text-text no-underline hover:text-text-bright transition-colors">contacto</a>
+          <a href="mailto:tlacuilo@tlacuilo.org" className="text-text no-underline hover:text-text-bright transition-colors">contacto</a>
         </div>
         <div className="text-text-faint">© tlacuilo · 2026 · cdmx · los comunes</div>
       </footer>

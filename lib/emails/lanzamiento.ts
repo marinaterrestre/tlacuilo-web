@@ -81,7 +81,7 @@ export function emailLanzamiento({ bajaUrl }: { bajaUrl: string }): {
 
               <p style="margin: 0; font-size: 15px; color: #c5c5e8;">
                 Si tienes cualquier duda escr&iacute;benos a
-                <a href="mailto:hola@tlacuilo.org" style="color: #B8F200; text-decoration: none;">hola@tlacuilo.org</a>,
+                <a href="mailto:tlacuilo@tlacuilo.org" style="color: #B8F200; text-decoration: none;">tlacuilo@tlacuilo.org</a>,
                 ese correo s&iacute; lo leemos.
               </p>
 
@@ -120,7 +120,7 @@ El morral tambien funciona como tu lista de deseos: si un titulo esta prestado e
 
 Te esperamos en Coyoacan.
 
-Si tienes cualquier duda escribenos a hola@tlacuilo.org, ese correo si lo leemos.
+Si tienes cualquier duda escribenos a tlacuilo@tlacuilo.org, ese correo si lo leemos.
 
 Recibes este correo porque dejaste tu correo en el formulario de prestamos de Tlacuilo. Si prefieres no recibir mas correos nuestros, da de baja tu correo aqui: ${bajaUrl}`
 
