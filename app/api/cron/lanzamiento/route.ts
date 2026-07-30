@@ -86,8 +86,9 @@ export async function GET(req: NextRequest) {
     const bajaUrl = `${SITE_URL}/api/baja?token=${f.token}`
     const { subject, html, text } = emailLanzamiento({ bajaUrl })
     return {
-      // hola@ no tiene buzon, asi que ni de remitente ni en el cuerpo. Todo
-      // apunta a tlacuilo@, que si recibe.
+      // tlacuilo@ y no hola@: hola@ no tiene buzon, no puede tener foto de
+      // perfil en Gmail y nadie la lee. Resend confirmo entrega desde
+      // tlacuilo@, asi que no hay razon para usar la otra.
       from: 'Tlacuilo <tlacuilo@tlacuilo.org>',
       to: [f.correo],
       reply_to: 'tlacuilo@tlacuilo.org',
