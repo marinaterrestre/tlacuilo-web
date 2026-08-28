@@ -1,115 +1,123 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { comprimirImagen } from '@/lib/imagen'
 import { CHECKOUT_STEPS, getMaxObjetosCheckout, setMaxObjetosCheckout } from '@/lib/config'
 import TecaLayout from '@/components/TecaLayout'
+import AdminNav from '@/components/AdminNav'
+import { useEditorGate } from '@/components/useEditorGate'
+import { fechaCorta, horarioDe, bloqueDe, esHoy, yaPaso, diasDesde, urlVisita } from '@/lib/visitas'
 
-type Libro = {
+type Fila = {
   id: string
-  titulo: string
-  autor: string | null
-}
-
-type Perfil = {
-  id: string
-  handle: string | null
-}
-
-type Prestamo = {
-  id: string
-  status: 'morral' | 'apartado' | 'recogido' | 'devuelto'
-  added_at: string
+  status: 'apartado' | 'recogido' | 'devuelto'
+  user_id: string
   visit_at: string | null
   picked_up_at: string | null
-  returned_at: string | null
   due_at: string | null
-  notes: string | null
   confirmado_at: string | null
-  user_id: string
-  asistencia: 'asistire' | 'no_asistire' | null
+  asistencia: string | null
+  notes: string | null
   foto_registro_url: string | null
-  foto_regreso_url: string | null
-  libros: Libro
-  perfiles_publicos: Perfil
+  libros: { id: string; titulo: string } | null
+  perfiles: { handle: string | null; nombre_completo: string | null; telefono: string | null } | null
 }
 
-const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
-const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
-
-function formatVisita(iso: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  const dia = `${DIAS[d.getDay()].slice(0, 3)} ${d.getDate()} ${MESES[d.getMonth()].slice(0, 3)}`
-  const bloque = d.getHours() < 14 ? 'mañana (10-14:30)' : 'tarde (16-19)'
-  return `${dia} · ${bloque}`
+/** Una visita: una persona, un horario, todos sus objetos juntos. */
+type Visita = {
+  key: string
+  userId: string
+  /** Fecha que se muestra: la visita, o la salida si ya se los llevó. */
+  fecha: string | null
+  /** La llave real de la visita. Nunca cambia aunque ya se hayan recogido. */
+  visitAt: string | null
+  status: 'apartado' | 'recogido' | 'devuelto'
+  nombre: string
+  handle: string
+  telefono: string | null
+  objetos: number
+  confirmada: boolean
+  asistira: boolean
+  dueAt: string | null
+  recado: string | null
+  fotosSalida: number
+  titulos: string[]
 }
 
-function formatDueDate(iso: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return `${d.getDate()} ${MESES[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`
+function agrupar(filas: Fila[]): Visita[] {
+  const mapa = new Map<string, Visita>()
+  for (const f of filas) {
+    // El ancla es SIEMPRE la visita: los préstamos viejos se registraron libro
+    // por libro con su propio reloj, así que agrupar por picked_up_at los
+    // partiría en una fila por libro.
+    const ancla = f.visit_at ?? f.picked_up_at
+    const key = `${f.user_id}|${f.status}|${ancla ?? 'sin-fecha'}`
+    if (!mapa.has(key)) {
+      mapa.set(key, {
+        key,
+        userId: f.user_id,
+        fecha: ancla,
+        visitAt: f.visit_at,
+        status: f.status,
+        nombre: f.perfiles?.nombre_completo?.trim() || `@${f.perfiles?.handle ?? 'sin alias'}`,
+        handle: f.perfiles?.handle ?? 'sin-alias',
+        telefono: f.perfiles?.telefono ?? null,
+        objetos: 0,
+        confirmada: false,
+        asistira: false,
+        dueAt: f.due_at,
+        recado: null,
+        fotosSalida: 0,
+        titulos: [],
+      })
+    }
+    const v = mapa.get(key)!
+    v.objetos += 1
+    if (f.confirmado_at) v.confirmada = true
+    if (f.asistencia === 'asistire') v.asistira = true
+    if (f.notes && !v.recado) v.recado = f.notes
+    if (f.foto_registro_url) v.fotosSalida += 1
+    if (f.libros?.titulo) v.titulos.push(f.libros.titulo)
+    // La fecha de devolución que manda es la más próxima del grupo.
+    if (f.due_at && (!v.dueAt || f.due_at < v.dueAt)) v.dueAt = f.due_at
+  }
+  return [...mapa.values()]
 }
-
-function isToday(iso: string | null): boolean {
-  if (!iso) return false
-  const d = new Date(iso)
-  const today = new Date()
-  return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate()
-}
-
-function isThisWeek(iso: string | null): boolean {
-  if (!iso) return false
-  const d = new Date(iso)
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const inWeek = new Date(today)
-  inWeek.setDate(today.getDate() + 7)
-  return d >= today && d <= inWeek
-}
-
-type Filtro = 'todos' | 'hoy' | 'semana' | 'recogidos' | 'vencidos' | 'historial'
 
 export default function AdminPrestamosPage() {
-  const router = useRouter()
-  const [loading, setLoading] = useState(true)
-  const [isEditor, setIsEditor] = useState(false)
-  const [prestamos, setPrestamos] = useState<Prestamo[]>([])
-  const [filtro, setFiltro] = useState<Filtro>('todos')
-  const [working, setWorking] = useState<string | null>(null)
-  const [refreshKey, setRefreshKey] = useState(0)
+  const { loading, isEditor } = useEditorGate()
+  const [filas, setFilas] = useState<Fila[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [errorCarga, setErrorCarga] = useState<string | null>(null)
   const [maxObjetos, setMaxObjetosLocal] = useState<number | null>(null)
   const [savingLimite, setSavingLimite] = useState(false)
   const [limiteMsg, setLimiteMsg] = useState<string | null>(null)
-  const [subiendoFoto, setSubiendoFoto] = useState<string | null>(null)
+  const [verAjustes, setVerAjustes] = useState(false)
 
-  async function subirFotoRegistro(p: Prestamo, file: File | null, momento: 'salida' | 'regreso' = 'salida') {
-    if (!file) return
-    setSubiendoFoto(p.id)
-    try {
-      const comprimida = await comprimirImagen(file, { maxDim: 1200, quality: 0.8 })
-      const path = momento === 'salida' ? `${p.id}.webp` : `${p.id}-regreso.webp`
-      const campo = momento === 'salida' ? 'foto_registro_url' : 'foto_regreso_url'
-      const { error: upErr } = await supabase.storage
-        .from('registro')
-        .upload(path, comprimida, { upsert: true, contentType: comprimida.type })
-      if (upErr) throw new Error(upErr.message)
-      const { data: pub } = supabase.storage.from('registro').getPublicUrl(path)
-      const url = `${pub.publicUrl}?v=${Date.now()}`
-      const { error: updErr } = await supabase
-        .from('prestamos')
-        .update({ [campo]: url })
-        .eq('id', p.id)
-      if (updErr) throw new Error(updErr.message)
-      setPrestamos((prev) => prev.map((x) => (x.id === p.id ? { ...x, [campo]: url } : x)))
-    } catch (e) {
-      console.error('foto registro:', e)
-      alert('no se pudo subir la foto del ejemplar')
+  const cargar = useCallback(async () => {
+    if (!isEditor) return
+    const { data, error } = await supabase
+      .from('prestamos')
+      .select(`
+        id, status, user_id, visit_at, picked_up_at, due_at, confirmado_at,
+        asistencia, notes, foto_registro_url,
+        libros (id, titulo),
+        perfiles!prestamos_user_id_perfiles_fkey (handle, nombre_completo, telefono)
+      `)
+      .in('status', ['apartado', 'recogido'])
+      .order('visit_at', { ascending: true, nullsFirst: false })
+    if (error) {
+      console.error('error cargando préstamos:', error)
+      setErrorCarga(error.message)
+      setCargando(false)
+      return
     }
-    setSubiendoFoto(null)
-  }
+    setFilas((data ?? []) as unknown as Fila[])
+    setCargando(false)
+  }, [isEditor])
+
+  useEffect(() => { cargar() }, [cargar])
 
   useEffect(() => {
     if (!isEditor) return
@@ -121,8 +129,8 @@ export default function AdminPrestamosPage() {
     setLimiteMsg(null)
     const err = await setMaxObjetosCheckout(n)
     if (err) {
-      setLimiteMsg(null)
       console.error('error guardando límite:', err)
+      setLimiteMsg('no se pudo guardar')
     } else {
       setMaxObjetosLocal(n)
       setLimiteMsg('✓ guardado')
@@ -131,139 +139,10 @@ export default function AdminPrestamosPage() {
     setSavingLimite(false)
   }
 
-  useEffect(() => {
-    const check = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        router.push('/login')
-        return
-      }
-      const { data: perfil } = await supabase
-        .from('perfiles')
-        .select('rol')
-        .eq('id', user.id)
-        .single()
-      if (perfil?.rol !== 'editor') {
-        router.push('/mi-tlacuilo')
-        return
-      }
-      setIsEditor(true)
-      setLoading(false)
-    }
-    check()
-  }, [router])
-
-  const loadPrestamos = useCallback(async () => {
-    if (!isEditor) return
-    const { data, error } = await supabase
-      .from('prestamos')
-      .select(`
-        id, status, added_at, visit_at, picked_up_at, returned_at, due_at, notes, confirmado_at, user_id,
-        asistencia, foto_registro_url, foto_regreso_url,
-        libros (id, titulo, autor),
-        perfiles_publicos!user_id (id, handle)
-      `)
-      .in('status', ['apartado', 'recogido', 'devuelto'])
-      .order('visit_at', { ascending: true, nullsFirst: false })
-    if (error) {
-      console.error('error cargando préstamos:', error)
-      return
-    }
-    setPrestamos((data ?? []) as unknown as Prestamo[])
-  }, [isEditor, refreshKey])
-
-  useEffect(() => {
-    loadPrestamos()
-  }, [loadPrestamos])
-
-  async function confirmarReserva(p: Prestamo) {
-    if (!p.visit_at) return
-    setWorking(p.id)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) throw new Error('sin sesión')
-      const res = await fetch('/api/emails/confirmacion', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ userId: p.user_id, visitAt: p.visit_at }),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? 'error confirmando')
-      if (json.correo !== 'enviado') {
-        alert('reserva confirmada, pero el correo falló: ' + json.correo)
-      }
-    } catch (e) {
-      alert('error: ' + (e instanceof Error ? e.message : String(e)))
-    }
-    setWorking(null)
-    setRefreshKey((k) => k + 1)
-  }
-
-  async function marcarRecogido(p: Prestamo) {
-    // Ficha de salida: sin foto del ejemplar no hay salida.
-    if (!p.foto_registro_url) {
-      alert('sube la foto de salida del ejemplar antes de confirmar')
-      return
-    }
-    setWorking(p.id)
-    const { data: { user: editor } } = await supabase.auth.getUser()
-    const pickedUp = new Date()
-    const dueAt = new Date(pickedUp)
-    dueAt.setDate(dueAt.getDate() + 30)
-    const { error } = await supabase
-      .from('prestamos')
-      .update({
-        status: 'recogido',
-        picked_up_at: pickedUp.toISOString(),
-        due_at: dueAt.toISOString(),
-        salida_por: editor?.id ?? null,
-      })
-      .eq('id', p.id)
-    if (!error) {
-      await supabase.from('libros').update({ disponible: false }).eq('id', p.libros.id)
-    }
-    setWorking(null)
-    if (error) {
-      alert('error: ' + error.message)
-      return
-    }
-    setRefreshKey((k) => k + 1)
-  }
-
-  async function marcarDevuelto(p: Prestamo) {
-    // Ficha de regreso: sin foto del ejemplar de vuelta no hay regreso.
-    if (!p.foto_regreso_url) {
-      alert('sube la foto de regreso del ejemplar antes de confirmar')
-      return
-    }
-    setWorking(p.id)
-    const { data: { user: editor } } = await supabase.auth.getUser()
-    const { error } = await supabase
-      .from('prestamos')
-      .update({
-        status: 'devuelto',
-        returned_at: new Date().toISOString(),
-        regreso_por: editor?.id ?? null,
-      })
-      .eq('id', p.id)
-    if (!error) {
-      await supabase.from('libros').update({ disponible: true }).eq('id', p.libros.id)
-    }
-    setWorking(null)
-    if (error) {
-      alert('error: ' + error.message)
-      return
-    }
-    setRefreshKey((k) => k + 1)
-  }
-
-  if (loading) {
+  if (loading || !isEditor) {
     return (
       <TecaLayout>
-        <section className="px-10 py-20 max-w-7xl mx-auto">
+        <section className="px-10 py-20 max-w-6xl mx-auto">
           <p className="opacity-70 font-mono text-[clamp(13px,1vw,16px)]">
             &gt; verificando permisos<span className="animate-pulse">_</span>
           </p>
@@ -272,220 +151,206 @@ export default function AdminPrestamosPage() {
     )
   }
 
-  if (!isEditor) return null
+  const visitas = agrupar(filas)
 
-  const filtered = prestamos.filter((p) => {
-    if (filtro === 'todos') return p.status !== 'devuelto'
-    if (filtro === 'hoy') return p.status === 'apartado' && isToday(p.visit_at)
-    if (filtro === 'semana') return p.status === 'apartado' && isThisWeek(p.visit_at)
-    if (filtro === 'recogidos') return p.status === 'recogido'
-    if (filtro === 'vencidos') return p.status === 'recogido' && p.due_at && new Date(p.due_at) < new Date()
-    if (filtro === 'historial') return p.status === 'devuelto'
-    return true
-  })
-
-  const counts = {
-    todos: prestamos.filter((p) => p.status !== 'devuelto').length,
-    hoy: prestamos.filter((p) => p.status === 'apartado' && isToday(p.visit_at)).length,
-    semana: prestamos.filter((p) => p.status === 'apartado' && isThisWeek(p.visit_at)).length,
-    recogidos: prestamos.filter((p) => p.status === 'recogido').length,
-    vencidos: prestamos.filter((p) => p.status === 'recogido' && p.due_at && new Date(p.due_at) < new Date()).length,
-    historial: prestamos.filter((p) => p.status === 'devuelto').length,
-  }
+  const hoy = visitas.filter((v) => v.status === 'apartado' && esHoy(v.fecha))
+  const porConfirmar = visitas.filter(
+    (v) => v.status === 'apartado' && !v.confirmada && !esHoy(v.fecha) && !yaPaso(v.fecha)
+  )
+  const proximas = visitas.filter(
+    (v) => v.status === 'apartado' && v.confirmada && !esHoy(v.fecha) && !yaPaso(v.fecha)
+  )
+  const noLlegaron = visitas.filter(
+    (v) => v.status === 'apartado' && !esHoy(v.fecha) && yaPaso(v.fecha)
+  )
+  const enPrestamo = visitas.filter(
+    (v) => v.status === 'recogido' && !(v.dueAt && yaPaso(v.dueAt))
+  )
+  const vencidos = visitas.filter((v) => v.status === 'recogido' && v.dueAt && yaPaso(v.dueAt))
 
   return (
     <TecaLayout>
-      <section className="px-10 pt-8 pb-16 max-w-7xl mx-auto">
-        <p className="font-mono uppercase tracking-[0.2em] text-[clamp(10px,0.8vw,13px)] opacity-60 mb-2">
-          &gt; admin / préstamos
-        </p>
+      <AdminNav />
+      <section className="px-10 max-md:px-5 pt-8 pb-16 max-w-6xl mx-auto">
         <h1 className="font-mono leading-tight mb-2 text-[clamp(28px,3.5vw,52px)] uppercase tracking-wide text-text-bright">
-          Préstamos activos
+          Préstamos
         </h1>
-        <p className="opacity-70 mb-8 text-[clamp(13px,1vw,17px)]">
-          Reservas pendientes de recoger + libros en circulación. Marca al entregar y al recibir.
+        <p className="opacity-70 mb-10 text-[clamp(13px,1vw,17px)]">
+          Cada línea es una visita completa, no un libro suelto. Ábrela para recibir a la persona.
         </p>
 
-        {/* LÍMITE GLOBAL · objetos por checkout */}
-        <div className="border border-rule p-4 mb-6 flex flex-wrap items-center gap-4 font-mono text-xs">
-          <span className="uppercase tracking-wider opacity-70">
-            límite de objetos por checkout (global):
-          </span>
-          <select
-            value={maxObjetos ?? ''}
-            onChange={(e) => guardarLimite(Number(e.target.value))}
-            disabled={savingLimite || maxObjetos === null}
-            className="bg-tinta text-bone border border-rule-strong px-3 py-2 font-mono text-xs cursor-pointer disabled:opacity-50"
-          >
-            {CHECKOUT_STEPS.map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
-          {savingLimite && <span className="opacity-60">&gt; guardando...</span>}
-          {limiteMsg && <span className="text-available">{limiteMsg}</span>}
-        </div>
-
-        <div className="border-y border-rule py-4 mb-6 flex flex-wrap items-center gap-2 font-mono text-xs">
-          {([
-            ['todos', 'todos', counts.todos],
-            ['hoy', 'visita hoy', counts.hoy],
-            ['semana', 'esta semana', counts.semana],
-            ['recogidos', 'en préstamo', counts.recogidos],
-            ['vencidos', '⚠ vencidos', counts.vencidos],
-            ['historial', 'historial', counts.historial],
-          ] as [Filtro, string, number][]).map(([id, label, count]) => (
-            <button
-              key={id}
-              onClick={() => setFiltro(id)}
-              className={`px-3 py-2 border uppercase tracking-wider transition-colors ${filtro === id ? 'border-invert-bg bg-invert-bg text-invert-fg' : 'border-rule hover:border-rule-strong'}`}
-            >
-              {label} ({count})
-            </button>
-          ))}
-        </div>
-
-        {filtered.length === 0 ? (
-          <div className="border border-rule p-8 bg-bg-soft text-center font-mono">
-            <p className="opacity-70">&gt; no hay préstamos con este filtro</p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3 font-mono">
-            {filtered.map((p) => {
-              const vencido = p.status === 'recogido' && p.due_at && new Date(p.due_at) < new Date()
-              return (
-                <div
-                  key={p.id}
-                  className={`border p-4 ${vencido ? 'border-loan' : 'border-rule'} bg-bg-soft`}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-text-bright text-sm font-medium leading-tight">
-                        {p.libros.titulo}
-                      </p>
-                      <p className="opacity-70 text-xs mt-0.5">
-                        {p.libros.autor ?? '—'}
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] uppercase tracking-wider">
-                        <span className="opacity-70">
-                          @{p.perfiles_publicos?.handle ?? 'sin-alias'}
-                        </span>
-                        {p.status === 'apartado' && (
-                          <span className="opacity-70">
-                            visita: <span className="text-text-bright">{formatVisita(p.visit_at)}</span>
-                          </span>
-                        )}
-                        {p.status === 'recogido' && (
-                          <span className="opacity-70">
-                            devolver antes del:{' '}
-                            <span className={vencido ? 'text-loan' : 'text-text-bright'}>
-                              {formatDueDate(p.due_at)}
-                            </span>
-                          </span>
-                        )}
-                        {p.status === 'devuelto' && (
-                          <span className="opacity-70">
-                            salió: {formatDueDate(p.picked_up_at)} · volvió:{' '}
-                            <span className="text-available">{formatDueDate(p.returned_at)}</span>
-                          </span>
-                        )}
-                        <span className={`uppercase ${p.status === 'apartado' ? 'text-text-bright' : 'text-available'}`}>
-                          · {p.status}
-                        </span>
-                        {p.status === 'apartado' && p.asistencia === 'asistire' && (
-                          <span className="text-available">· ✓ confirmó asistencia</span>
-                        )}
-                        {p.status === 'apartado' && p.confirmado_at && (
-                          <span className="text-available">· ✓ reserva confirmada</span>
-                        )}
-                      </div>
-                      <div className="mt-3 flex items-center gap-3 flex-wrap">
-                        {p.foto_registro_url ? (
-                          <a href={p.foto_registro_url} target="_blank" rel="noreferrer" className="block w-12 h-16 overflow-hidden border border-rule shrink-0" title="foto de salida">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={p.foto_registro_url} alt="foto de salida" className="w-full h-full object-cover" />
-                          </a>
-                        ) : null}
-                        {p.foto_regreso_url ? (
-                          <a href={p.foto_regreso_url} target="_blank" rel="noreferrer" className="block w-12 h-16 overflow-hidden border border-available shrink-0" title="foto de regreso">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={p.foto_regreso_url} alt="foto de regreso" className="w-full h-full object-cover" />
-                          </a>
-                        ) : null}
-                        {p.status === 'apartado' && (
-                          <label className="font-micro text-[10px] uppercase tracking-[0.08em] text-text-dim cursor-pointer border border-rule px-2 py-1.5 hover:text-text-bright hover:border-rule-strong transition-colors">
-                            {subiendoFoto === p.id
-                              ? '> subiendo...'
-                              : p.foto_registro_url
-                                ? 'cambiar foto de salida'
-                                : '+ foto de salida (obligatoria)'}
-                            <input
-                              type="file"
-                              accept="image/*"
-                              capture="environment"
-                              className="hidden"
-                              disabled={subiendoFoto === p.id}
-                              onChange={(e) => subirFotoRegistro(p, e.target.files?.[0] ?? null, 'salida')}
-                            />
-                          </label>
-                        )}
-                        {p.status === 'recogido' && (
-                          <label className="font-micro text-[10px] uppercase tracking-[0.08em] text-text-dim cursor-pointer border border-rule px-2 py-1.5 hover:text-text-bright hover:border-rule-strong transition-colors">
-                            {subiendoFoto === p.id
-                              ? '> subiendo...'
-                              : p.foto_regreso_url
-                                ? 'cambiar foto de regreso'
-                                : '+ foto de regreso (obligatoria)'}
-                            <input
-                              type="file"
-                              accept="image/*"
-                              capture="environment"
-                              className="hidden"
-                              disabled={subiendoFoto === p.id}
-                              onChange={(e) => subirFotoRegistro(p, e.target.files?.[0] ?? null, 'regreso')}
-                            />
-                          </label>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2 shrink-0">
-                      {p.status === 'apartado' && !p.confirmado_at && (
-                        <button
-                          onClick={() => confirmarReserva(p)}
-                          disabled={working === p.id}
-                          className="px-3 py-2 border border-rule-strong text-text text-xs uppercase tracking-wider hover:border-text-bright hover:text-text-bright disabled:opacity-40 whitespace-nowrap transition-colors"
-                        >
-                          {working === p.id ? '...' : '✉ confirmar reserva'}
-                        </button>
-                      )}
-                      {p.status === 'apartado' && (
-                        <button
-                          onClick={() => marcarRecogido(p)}
-                          disabled={working === p.id || !p.foto_registro_url}
-                          title={!p.foto_registro_url ? 'sube la foto de salida primero' : undefined}
-                          className="px-3 py-2 bg-invert-bg text-invert-fg text-xs uppercase tracking-wider hover:opacity-90 disabled:opacity-40 whitespace-nowrap"
-                        >
-                          {working === p.id ? '...' : '✓ confirmar salida'}
-                        </button>
-                      )}
-                      {p.status === 'recogido' && (
-                        <button
-                          onClick={() => marcarDevuelto(p)}
-                          disabled={working === p.id || !p.foto_regreso_url}
-                          title={!p.foto_regreso_url ? 'sube la foto de regreso primero' : undefined}
-                          className="px-3 py-2 bg-invert-bg text-invert-fg text-xs uppercase tracking-wider hover:opacity-90 disabled:opacity-40 whitespace-nowrap"
-                        >
-                          {working === p.id ? '...' : '↩ confirmar regreso'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+        {errorCarga && (
+          <p className="font-mono text-loan text-[13px] mb-6 border border-loan/50 p-3">
+            &gt; no pude leer los préstamos: {errorCarga}
+          </p>
         )}
+
+        {cargando ? (
+          <p className="font-mono opacity-70">&gt; cargando<span className="animate-pulse">_</span></p>
+        ) : (
+          <>
+            <Bloque titulo="Hoy" visitas={hoy} vacio="hoy no viene nadie." destacado />
+            <Bloque
+              titulo="Sin confirmar"
+              visitas={porConfirmar}
+              vacio="ninguna. las reservas se confirman solas."
+              alerta={porConfirmar.length > 0}
+              nota="normalmente está vacío: si algo cae aquí es que el correo de confirmación no salió, no que falte tu aprobación."
+            />
+            <Bloque titulo="Próximas visitas" visitas={proximas} vacio="no hay visitas confirmadas por delante." />
+            <Bloque
+              titulo="En préstamo"
+              visitas={enPrestamo}
+              vacio="no hay nada fuera de la biblioteca."
+              nota="se renuevan solos mientras nadie más los espere. devolver es venir en horario, sin cita."
+            />
+            <Bloque
+              titulo="Vencidos"
+              visitas={vencidos}
+              vacio="nada vencido. todo en orden."
+              alerta={vencidos.length > 0}
+            />
+            <Bloque
+              titulo="No llegaron"
+              visitas={noLlegaron}
+              vacio="ninguna reserva se quedó colgada."
+              alerta={noLlegaron.length > 0}
+              nota="pasó su fecha y nadie vino. ábrelas para devolverles sus libros al morral y ofrecerles reagendar."
+            />
+          </>
+        )}
+
+        {/* AJUSTES · configuración, no operación. Por eso vive hasta abajo. */}
+        <div className="mt-14 border-t border-rule pt-6 font-mono text-xs">
+          <button
+            onClick={() => setVerAjustes((v) => !v)}
+            className="uppercase tracking-wider opacity-60 hover:opacity-100 transition-opacity"
+          >
+            {verAjustes ? '− ajustes' : '+ ajustes'}
+          </button>
+          {verAjustes && (
+            <div className="mt-4 flex flex-wrap items-center gap-4">
+              <span className="uppercase tracking-wider opacity-70">
+                límite de objetos por checkout:
+              </span>
+              <select
+                value={maxObjetos ?? ''}
+                onChange={(e) => guardarLimite(Number(e.target.value))}
+                disabled={savingLimite || maxObjetos === null}
+                className="bg-tinta text-bone border border-rule-strong px-3 py-2 font-mono text-xs cursor-pointer disabled:opacity-50"
+              >
+                {CHECKOUT_STEPS.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+              {savingLimite && <span className="opacity-60">&gt; guardando...</span>}
+              {limiteMsg && <span className="text-available">{limiteMsg}</span>}
+            </div>
+          )}
+        </div>
       </section>
     </TecaLayout>
+  )
+}
+
+function Bloque({
+  titulo,
+  visitas,
+  vacio,
+  alerta = false,
+  destacado = false,
+  nota,
+}: {
+  titulo: string
+  visitas: Visita[]
+  vacio: string
+  alerta?: boolean
+  destacado?: boolean
+  nota?: string
+}) {
+  return (
+    <div className="mb-10">
+      <div className="flex items-baseline justify-between mb-3 border-b border-rule pb-2">
+        <h2 className={`font-mono uppercase tracking-wide text-[clamp(14px,1.4vw,19px)] ${alerta ? 'text-loan' : 'text-text-bright'}`}>
+          {titulo}
+        </h2>
+        <span className={`font-mono text-[11px] uppercase tracking-wider ${alerta && visitas.length > 0 ? 'text-loan' : 'opacity-50'}`}>
+          {visitas.length}
+        </span>
+      </div>
+      {nota && <p className="font-mono text-[11px] opacity-50 mb-3">{nota}</p>}
+      {visitas.length === 0 ? (
+        <p className="font-mono opacity-50 text-[clamp(12px,0.95vw,14px)]">&gt; {vacio}</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {visitas.map((v) => (
+            <FilaVisita key={v.key} v={v} destacado={destacado} alerta={alerta} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FilaVisita({ v, destacado, alerta }: { v: Visita; destacado: boolean; alerta: boolean }) {
+  const objetos = `${v.objetos} objeto${v.objetos === 1 ? '' : 's'}`
+  const faltanFotos = v.status === 'apartado' && v.fotosSalida < v.objetos
+  const clase = `block border p-4 font-mono transition-colors ${
+    alerta ? 'border-loan/50' : destacado ? 'border-rule-strong' : 'border-rule'
+  } bg-bg-soft`
+
+  // Sin visita no hay página que abrir (préstamos importados a mano).
+  const cuerpo = (
+    <>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <span className="text-text-bright text-sm">
+          {v.nombre}
+          <span className="opacity-40 text-[11px] ml-2">@{v.handle}</span>
+        </span>
+        <span className="text-[11px] uppercase tracking-wider opacity-70">
+          {v.status === 'apartado' ? (
+            <>
+              {fechaCorta(v.fecha)} · {bloqueDe(v.fecha)} {horarioDe(v.fecha)}
+            </>
+          ) : (
+            <>
+              devolver antes del{' '}
+              <span className={v.dueAt && yaPaso(v.dueAt) ? 'text-loan' : 'text-text-bright'}>
+                {fechaCorta(v.dueAt)}
+              </span>
+              {v.dueAt && yaPaso(v.dueAt) && (
+                <span className="text-loan"> · {diasDesde(v.dueAt)} días</span>
+              )}
+            </>
+          )}
+        </span>
+      </div>
+      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] uppercase tracking-wider">
+        <span className="opacity-50">{objetos}</span>
+        {v.telefono && <span className="opacity-50">tel {v.telefono}</span>}
+        {v.status === 'apartado' && !v.confirmada && <span className="text-acid">sin confirmar</span>}
+        {v.status === 'apartado' && v.confirmada && <span className="text-available">confirmada</span>}
+        {v.asistira && <span className="text-available">✓ dijo que viene</span>}
+        {faltanFotos && (
+          <span className="opacity-50">
+            {v.fotosSalida}/{v.objetos} fotos
+          </span>
+        )}
+        {v.recado && <span className="text-text-bright">· dejó recado</span>}
+      </div>
+      {v.titulos.length > 0 && (
+        <p className="mt-2 text-[11px] opacity-50 truncate">
+          {v.titulos.slice(0, 3).join(' · ')}
+          {v.titulos.length > 3 ? ` · y ${v.titulos.length - 3} más` : ''}
+        </p>
+      )}
+    </>
+  )
+
+  if (!v.visitAt) return <div className={clase}>{cuerpo}</div>
+  return (
+    <Link href={urlVisita(v.userId, v.visitAt)} className={`${clase} hover:border-rule-strong`}>
+      {cuerpo}
+    </Link>
   )
 }

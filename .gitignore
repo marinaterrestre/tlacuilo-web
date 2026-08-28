@@ -47,3 +47,6 @@ portadas-progreso.json
 sync-reporte-*.json
 scripts/catalogo_limpio_*.json
 scripts/historicos_google_form.json
+
+# scratch de trabajo, no va al repo
+.basura/

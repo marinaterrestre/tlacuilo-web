@@ -46,10 +46,12 @@ export async function POST(req: NextRequest) {
 
   let userId: string
   let visitAt: string
+  let nota: string | null = null
   try {
     const body = await req.json()
     userId = String(body.userId)
     visitAt = String(body.visitAt)
+    nota = body.nota ? String(body.nota).slice(0, 1000) : null
     if (!userId || Number.isNaN(Date.parse(visitAt))) throw new Error()
   } catch {
     return NextResponse.json({ error: 'body inválido' }, { status: 400 })
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest) {
   const [{ data: prestamos }, { data: perfil }, { data: lector }] = await Promise.all([
     service
       .from('prestamos')
-      .select('id, libros (titulo, autor)')
+      .select('id, rsvp_token, libros (titulo, autor)')
       .eq('user_id', userId)
       .eq('status', 'apartado')
       .eq('visit_at', visitAt),
@@ -87,10 +89,16 @@ export async function POST(req: NextRequest) {
 
   // Correo al lector con link de Google Calendar
   const libros = prestamos.map((p) => p.libros) as unknown as LibroEmail[]
+  // El token de un préstamo de la visita es la llave para soltarla completa.
+  const tokenCancelar = prestamos.find((p) => p.rsvp_token)?.rsvp_token
   const { subject, html, text } = emailReservaConfirmada({
     handle: perfil?.handle ?? 'lector',
     libros,
     visitAt,
+    nota,
+    cancelUrl: tokenCancelar
+      ? `https://www.tlacuilo.org/api/cancelar?token=${tokenCancelar}`
+      : undefined,
   })
 
   const resend = new Resend(process.env.RESEND_API_KEY)

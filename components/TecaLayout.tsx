@@ -112,7 +112,25 @@ export default function TecaLayout({ children, initialCategorias, initialDecadas
         )}
 
         {/* MAIN */}
-        <main className="flex-1 min-w-0">{children}</main>
+        <main className="flex-1 min-w-0 flex flex-col">
+          <div className="flex-1">{children}</div>
+
+          {/* Pie mínimo de las páginas interiores. El landing tiene el suyo,
+              completo; aquí solo lo que alguien puede necesitar a media
+              navegación: cómo funciona esto y a quién escribirle. */}
+          <footer className="border-t border-rule px-10 max-md:px-5 py-6 flex flex-wrap gap-x-6 gap-y-2 font-mono text-[11px] text-text-dim">
+            <Link href="/preguntas" className="hover:text-text-bright transition-colors">
+              → cómo funciona
+            </Link>
+            <Link href="/manifesto" className="hover:text-text-bright transition-colors">
+              → manifiesto
+            </Link>
+            <a href="mailto:tlacuilo@tlacuilo.org" className="hover:text-text-bright transition-colors">
+              → tlacuilo@tlacuilo.org
+            </a>
+            <span className="opacity-50">lun–vie · 10:30–14:30 · 16:00–18:30</span>
+          </footer>
+        </main>
       </div>
 
       {/* ============ MOBILE DRAWER ============ */}

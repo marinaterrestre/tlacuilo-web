@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import TecaLayout from '@/components/TecaLayout'
+import AdminNav from '@/components/AdminNav'
 
 /* ============================================================
    Tipos
@@ -151,6 +152,7 @@ export default function AdminEventosPage() {
 
   return (
     <TecaLayout>
+      <AdminNav />
       <section className="px-10 pt-10 pb-16 max-w-4xl mx-auto max-md:px-5">
         <p className="font-micro uppercase tracking-[0.12em] text-[11px] text-acid mb-3">
           admin · eventos

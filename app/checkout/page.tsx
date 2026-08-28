@@ -21,12 +21,10 @@ type Prestamo = {
   libros: Libro
 }
 
-const BLOCKS = [
-  { id: 'manana', label: 'mañana', range: '10:00 a 14:30', startHour: 10 },
-  { id: 'tarde', label: 'tarde', range: '16:00 a 19:00', startHour: 16 },
-] as const
+import { BLOQUES, type BloqueId } from '@/lib/horarios'
 
-type BlockId = typeof BLOCKS[number]['id']
+const BLOCKS = BLOQUES
+type BlockId = BloqueId
 
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -71,6 +69,10 @@ export default function CheckoutPage() {
   const [selectedBlock, setSelectedBlock] = useState<BlockId | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [maxObjetos, setMaxObjetos] = useState(5)
+  const [recado, setRecado] = useState('')
+  // Días o bloques sin quien entregue: si no hay quien te dé los libros, no
+  // tiene caso que puedas escoger ese horario.
+  const [cierres, setCierres] = useState<{ fecha: string; bloque: string | null }[]>([])
 
   const days = getNextWeekdays(10)
 
@@ -83,7 +85,8 @@ export default function CheckoutPage() {
         router.push('/login')
         return
       }
-      const [{ data, error: err }, max] = await Promise.all([
+      const hoyISO = new Date().toISOString().slice(0, 10)
+      const [{ data, error: err }, max, { data: cerrados }] = await Promise.all([
         supabase
           .from('prestamos')
           .select('id, libros (id, titulo, autor, portada_url, isbn)')
@@ -91,6 +94,7 @@ export default function CheckoutPage() {
           .eq('status', 'morral')
           .order('added_at', { ascending: false }),
         getMaxObjetosCheckout(),
+        supabase.from('cierres').select('fecha, bloque').gte('fecha', hoyISO),
       ])
       if (!mounted) return
       if (err) setError(err.message)
@@ -101,11 +105,21 @@ export default function CheckoutPage() {
         if (items.length <= max) setSeleccion(new Set(items.map((p) => p.id)))
       }
       setMaxObjetos(max)
+      setCierres(cerrados ?? [])
       setLoading(false)
     }
     load()
     return () => { mounted = false }
   }, [router])
+
+  const claveFecha = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+  const diaCerrado = (d: Date) =>
+    cierres.some((c) => c.fecha === claveFecha(d) && c.bloque === null)
+
+  const bloqueCerrado = (d: Date | null, bloque: string) =>
+    !!d && cierres.some((c) => c.fecha === claveFecha(d) && (c.bloque === null || c.bloque === bloque))
 
   const toggle = (id: string) => {
     setSeleccion((prev) => {
@@ -126,11 +140,21 @@ export default function CheckoutPage() {
     const block = BLOCKS.find((b) => b.id === selectedBlock)
     if (!block) return
     const visitAt = new Date(selectedDate)
-    visitAt.setHours(block.startHour, 0, 0, 0)
+    visitAt.setHours(block.hora, block.minuto, 0, 0)
     const ids = [...seleccion]
     const { error: upErr } = await supabase
       .from('prestamos')
-      .update({ status: 'apartado', visit_at: visitAt.toISOString() })
+      .update({
+        status: 'apartado',
+        visit_at: visitAt.toISOString(),
+        notes: recado.trim() || null,
+        // La fila se reusa: si esta reserva ya se había caducado o confirmado
+        // antes, esos sellos tienen que morir o el ciclo nuevo nace viejo.
+        reagendar_enviado_at: null,
+        confirmado_at: null,
+        asistencia: null,
+        recordatorio_cita_enviado_at: null,
+      })
       .in('id', ids)
     if (upErr) {
       setError(upErr.message)
@@ -141,20 +165,9 @@ export default function CheckoutPage() {
     // El contador del header baja: los seleccionados dejaron el morral
     window.dispatchEvent(new Event('tl:morral'))
 
-    // Correo de cita agendada (no bloquea el flujo si falla)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.access_token) {
-        fetch('/api/emails/cita', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ visitAt: visitAt.toISOString() }),
-        }).catch(() => {})
-      }
-    } catch {}
+    // A propósito NO sale ningún correo aquí. La reserva queda en espera:
+    // el correo se manda cuando el equipo ya fue por los libros y la confirma.
+    // Mientras tanto, quien reservó no se queda a ciegas: su perfil se lo dice.
 
     router.push('/mi-tlacuilo')
   }
@@ -263,11 +276,25 @@ export default function CheckoutPage() {
           <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
             {days.map((d) => {
               const selected = selectedDate?.toDateString() === d.toDateString()
+              const cerrado = diaCerrado(d)
               return (
                 <button
                   key={d.toISOString()}
-                  onClick={() => setSelectedDate(d)}
-                  className={`font-mono text-xs uppercase tracking-wider p-3 border transition-colors ${selected ? 'border-invert-bg bg-invert-bg text-invert-fg' : 'border-rule hover:border-rule-strong'}`}
+                  onClick={() => {
+                    if (cerrado) return
+                    setSelectedDate(d)
+                    // Si el bloque elegido no existe ese día, se limpia.
+                    if (selectedBlock && bloqueCerrado(d, selectedBlock)) setSelectedBlock(null)
+                  }}
+                  disabled={cerrado}
+                  title={cerrado ? 'ese día no hay quien te entregue' : undefined}
+                  className={`font-mono text-xs uppercase tracking-wider p-3 border transition-colors ${
+                    cerrado
+                      ? 'border-rule opacity-25 line-through cursor-not-allowed'
+                      : selected
+                        ? 'border-invert-bg bg-invert-bg text-invert-fg'
+                        : 'border-rule hover:border-rule-strong'
+                  }`}
                 >
                   {dayShort(d)}
                 </button>
@@ -286,14 +313,23 @@ export default function CheckoutPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {BLOCKS.map((b) => {
               const selected = selectedBlock === b.id
+              const cerrado = bloqueCerrado(selectedDate, b.id)
               return (
                 <button
                   key={b.id}
-                  onClick={() => setSelectedBlock(b.id)}
-                  className={`font-mono text-sm lowercase tracking-wider p-4 border text-left transition-colors ${selected ? 'border-invert-bg bg-invert-bg text-invert-fg' : 'border-rule hover:border-rule-strong'}`}
+                  onClick={() => { if (!cerrado) setSelectedBlock(b.id) }}
+                  disabled={cerrado}
+                  title={cerrado ? 'ese bloque no hay quien te entregue' : undefined}
+                  className={`font-mono text-sm lowercase tracking-wider p-4 border text-left transition-colors ${
+                    cerrado
+                      ? 'border-rule opacity-25 line-through cursor-not-allowed'
+                      : selected
+                        ? 'border-invert-bg bg-invert-bg text-invert-fg'
+                        : 'border-rule hover:border-rule-strong'
+                  }`}
                 >
                   <span className="block">{b.label}</span>
-                  <span className="block text-[11px] opacity-70 mt-1">{b.range}</span>
+                  <span className="block text-[11px] opacity-70 mt-1">{b.rango}</span>
                 </button>
               )
             })}
@@ -305,7 +341,7 @@ export default function CheckoutPage() {
             <p className="text-[clamp(12px,0.95vw,15px)] mb-4 opacity-90">
               &gt; vienes el <span className="text-text-bright">{dayFull(selectedDate)}</span>,{' '}
               bloque <span className="text-text-bright">{BLOCKS.find((b) => b.id === selectedBlock)?.label}</span>{' '}
-              ({BLOCKS.find((b) => b.id === selectedBlock)?.range}) por{' '}
+              ({BLOCKS.find((b) => b.id === selectedBlock)?.rango}) por{' '}
               <span className="text-text-bright">{seleccion.size} {seleccion.size === 1 ? 'objeto' : 'objetos'}</span>
             </p>
           ) : (
@@ -313,6 +349,25 @@ export default function CheckoutPage() {
               {seleccion.size === 0 ? '> escoge al menos un objeto, y día y bloque' : '> escoge día y bloque'}
             </p>
           )}
+
+          {/* Recado opcional: llega al panel cuando el equipo abre la visita. */}
+          <div className="mb-5">
+            <label
+              htmlFor="recado"
+              className="block font-mono text-[11px] uppercase tracking-wider opacity-60 mb-2"
+            >
+              ¿nos quieres decir algo? (opcional)
+            </label>
+            <textarea
+              id="recado"
+              value={recado}
+              onChange={(e) => setRecado(e.target.value)}
+              rows={2}
+              maxLength={500}
+              placeholder="llego un poco tarde, vengo por trabajo, busco algo parecido..."
+              className="w-full max-w-xl bg-bg border border-rule p-3 font-mono text-[13px] text-text placeholder:opacity-30 focus:border-rule-strong outline-none"
+            />
+          </div>
 
           {error && (
             <p className="text-loan text-xs uppercase tracking-wider mb-4">

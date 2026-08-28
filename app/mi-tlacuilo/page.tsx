@@ -8,7 +8,6 @@ import MiniCalendario from '@/components/MiniCalendario'
 import { comprimirImagen } from '@/lib/imagen'
 import TecaLayout from '@/components/TecaLayout'
 import Cover from '@/components/Cover'
-import AdminNotifBadge from '@/components/AdminNotifBadge'
 
 type Perfil = {
   id: string
@@ -37,6 +36,8 @@ type Prestamo = {
   visit_at: string | null
   picked_up_at: string | null
   returned_at: string | null
+  due_at: string | null
+  confirmado_at: string | null
   libros: Libro
 }
 
@@ -60,7 +61,10 @@ export default function MiTlacuiloPage() {
 
   const [morral, setMorral] = useState<Prestamo[]>([])
   const [visitas, setVisitas] = useState<Prestamo[]>([])
+  const [prestados, setPrestados] = useState<Prestamo[]>([])
   const [historial, setHistorial] = useState<Prestamo[]>([])
+  const [trabajando, setTrabajando] = useState<string | null>(null)
+  const [aviso, setAviso] = useState<{ tipo: 'ok' | 'mal'; txt: string } | null>(null)
 
   const [subiendoFoto, setSubiendoFoto] = useState(false)
   const [fotoMsg, setFotoMsg] = useState<string | null>(null)
@@ -117,7 +121,7 @@ export default function MiTlacuiloPage() {
           .single<Perfil>(),
         supabase
           .from('prestamos')
-          .select('id, status, added_at, visit_at, picked_up_at, returned_at, libros (id, titulo, autor, anio, portada_url, isbn)')
+          .select('id, status, added_at, visit_at, picked_up_at, returned_at, due_at, confirmado_at, libros (id, titulo, autor, anio, portada_url, isbn)')
           .eq('user_id', user.id)
           .in('status', ['morral', 'apartado', 'recogido', 'devuelto'])
           .order('added_at', { ascending: false }),
@@ -132,7 +136,8 @@ export default function MiTlacuiloPage() {
       if (prestamosData) {
         const all = prestamosData as unknown as Prestamo[]
         setMorral(all.filter((p) => p.status === 'morral'))
-        setVisitas(all.filter((p) => p.status === 'apartado' || p.status === 'recogido'))
+        setVisitas(all.filter((p) => p.status === 'apartado'))
+        setPrestados(all.filter((p) => p.status === 'recogido'))
         setHistorial(all.filter((p) => p.status === 'devuelto'))
       }
 
@@ -210,7 +215,7 @@ export default function MiTlacuiloPage() {
   }
 
   const alias = perfil?.handle ?? 'sin-alias'
-  const rentas = visitas.filter((p) => p.status === 'recogido').length + historial.length
+  const rentas = prestados.length + historial.length
 
   const aliasInfo = (() => {
     switch (aliasStatus) {
@@ -227,12 +232,70 @@ export default function MiTlacuiloPage() {
     }
   })()
 
+  // Días que le quedan al préstamo más próximo. Negativo si ya se pasó.
+  const fechaLimite = prestados.map((p) => p.due_at).filter(Boolean).sort()[0] ?? null
+  const diasRestantes = fechaLimite
+    ? Math.ceil((new Date(fechaLimite).getTime() - Date.now()) / 864e5)
+    : null
+  const vencido = diasRestantes !== null && diasRestantes < 0
+
+  async function extender(dias: number) {
+    setTrabajando('extender')
+    setAviso(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error('sin sesión')
+      const res = await fetch('/api/prestamos/extender', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ dias }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      setAviso({
+        tipo: 'ok',
+        txt: json.nuevaFecha
+          ? `gracias por avisar. ahora los tienes hasta el ${formatFechaCorta(json.nuevaFecha)}.`
+          : 'ya no queda extensión para estos títulos, alguien los está esperando.',
+      })
+      window.location.reload()
+    } catch (e) {
+      setAviso({ tipo: 'mal', txt: e instanceof Error ? e.message : String(e) })
+    }
+    setTrabajando(null)
+  }
+
+  async function cancelarVisita(visitAt: string | null) {
+    if (!visitAt) return
+    setTrabajando('cancelar')
+    setAviso(null)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { error } = await supabase
+      .from('prestamos')
+      .update({ status: 'morral', visit_at: null, confirmado_at: null, asistencia: null })
+      .eq('user_id', user.id)
+      .eq('visit_at', visitAt)
+      .eq('status', 'apartado')
+    setTrabajando(null)
+    if (error) {
+      setAviso({ tipo: 'mal', txt: error.message })
+      return
+    }
+    window.dispatchEvent(new Event('tl:morral'))
+    window.location.reload()
+  }
+
   return (
     <TecaLayout>
       <section className="px-10 pt-10 pb-12 max-w-7xl mx-auto max-md:px-5">
         <p className="font-micro uppercase tracking-[0.12em] text-[11px] text-text-dim mb-3">
           mi tlacuilo
         </p>
+
         <div className="flex items-center gap-5 mb-3">
           {/* FOTO DE PERFIL */}
           <div className="flex flex-col items-center gap-1.5">
@@ -317,46 +380,6 @@ export default function MiTlacuiloPage() {
           )}
         </div>
 
-        {perfil?.rol === 'editor' && (
-          <div className="mb-14">
-            <div className="font-micro uppercase tracking-[0.12em] text-[10px] text-acid mb-3">
-              · zona editora · administración tlacuilo
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <AdminNotifBadge />
-              <Link
-                href="/admin/libros"
-                className="inline-flex items-baseline gap-2 bg-tinta text-bone border border-tinta rounded-sm px-3 py-2 font-micro text-[11px] uppercase tracking-[0.08em] hover:bg-brillante hover:text-bone transition-colors"
-              >
-                Libros · agregar / editar
-              </Link>
-              <Link
-                href="/admin/portadas"
-                className="inline-flex items-baseline gap-2 bg-tinta text-bone border border-tinta rounded-sm px-3 py-2 font-micro text-[11px] uppercase tracking-[0.08em] hover:bg-brillante hover:text-bone transition-colors"
-              >
-                Portadas · subir
-              </Link>
-              <Link
-                href="/admin/prestamos"
-                className="inline-flex items-baseline gap-2 bg-tinta text-bone border border-tinta rounded-sm px-3 py-2 font-micro text-[11px] uppercase tracking-[0.08em] hover:bg-brillante hover:text-bone transition-colors"
-              >
-                Préstamos activos
-              </Link>
-              <Link
-                href="/admin/selecciones"
-                className="inline-flex items-baseline gap-2 bg-tinta text-bone border border-tinta rounded-sm px-3 py-2 font-micro text-[11px] uppercase tracking-[0.08em] hover:bg-brillante hover:text-bone transition-colors"
-              >
-                Selecciones del landing
-              </Link>
-              <Link
-                href="/admin/eventos"
-                className="inline-flex items-baseline gap-2 bg-tinta text-bone border border-tinta rounded-sm px-3 py-2 font-micro text-[11px] uppercase tracking-[0.08em] hover:bg-brillante hover:text-bone transition-colors"
-              >
-                Eventos del calendario
-              </Link>
-            </div>
-          </div>
-        )}
 
         <div className="mb-14 border-t border-rule pt-8">
           <div className="flex items-baseline justify-between mb-5">
@@ -414,6 +437,7 @@ export default function MiTlacuiloPage() {
           )}
         </div>
 
+        {/* ============ MIS VISITAS · lo que aparté, todavía no lo tengo ============ */}
         <div className="mb-14 border-t border-rule pt-8">
           <div className="flex items-baseline justify-between mb-5">
             <h2 className="font-sans font-light text-[clamp(22px,2.4vw,34px)] tracking-[-0.005em] text-text">
@@ -424,6 +448,12 @@ export default function MiTlacuiloPage() {
             </span>
           </div>
 
+          {aviso && (
+            <p className={`font-mono text-[13px] mb-5 border p-3 ${aviso.tipo === 'ok' ? 'text-available border-available/50' : 'text-loan border-loan/50'}`}>
+              &gt; {aviso.txt}
+            </p>
+          )}
+
           {visitas.length === 0 ? (
             <div className="border border-rule p-6 bg-bg-soft">
               <p className="font-mono text-sm opacity-70">
@@ -431,8 +461,107 @@ export default function MiTlacuiloPage() {
               </p>
             </div>
           ) : (
+            <>
+              {/* Mientras no la confirmen, la persona no se queda a ciegas. */}
+              {visitas.some((p) => !p.confirmado_at) && (
+                <div className="border border-rule p-4 bg-bg-soft mb-5">
+                  <p className="font-mono text-[13px] text-text">
+                    &gt; tu reserva está esperando confirmación.
+                  </p>
+                  <p className="font-mono text-[12px] opacity-60 mt-1.5 leading-relaxed">
+                    vamos por tus libros y te escribimos en cuanto estén listos. algunos viven en bodega, por eso tarda un poco.
+                  </p>
+                </div>
+              )}
+              {visitas.some((p) => p.confirmado_at) && (
+                <div className="border border-available/50 p-4 bg-bg-soft mb-5 flex flex-wrap items-center justify-between gap-3">
+                  <p className="font-mono text-[13px] text-available">
+                    &gt; tus libros ya están apartados y te esperamos.
+                  </p>
+                  <button
+                    onClick={() => cancelarVisita(visitas.find((p) => p.confirmado_at)?.visit_at ?? null)}
+                    disabled={trabajando === 'cancelar'}
+                    className="font-mono text-[11px] uppercase tracking-wider opacity-60 hover:opacity-100 underline disabled:opacity-30"
+                  >
+                    no voy a poder ir
+                  </button>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
+                {visitas.map((p) => (
+                  <Link key={p.id} href={`/biblioteca/${p.libros.id}`} className="block opacity-95 hover:opacity-100">
+                    <div className="aspect-[2/3] bg-bg-soft flex items-center justify-center text-text-dim p-2 text-center overflow-hidden text-[10px] mb-2">
+                      <Cover titulo={p.libros.titulo} portada_url={p.libros.portada_url} isbn={p.libros.isbn} autor={p.libros.autor} />
+                    </div>
+                    <p className="font-medium leading-tight text-[clamp(11px,0.9vw,14px)] line-clamp-2">{p.libros.titulo}</p>
+                    <p className="opacity-70 text-[10px] line-clamp-1">{p.libros.autor ?? '—'}</p>
+                    <p className="font-mono text-[10px] uppercase tracking-wider mt-1 opacity-70">
+                      {p.visit_at ? <>· {formatVisita(p.visit_at)}</> : null}
+                    </p>
+                    <p className="font-mono text-[10px] uppercase tracking-wider opacity-50">
+                      · {p.confirmado_at ? 'confirmada' : 'en espera'}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ============ MIS PRÉSTAMOS · lo que ya tengo en mis manos ============ */}
+        {prestados.length > 0 && (
+          <div className="mb-14 border-t border-rule pt-8">
+            <div className="flex items-baseline justify-between mb-5">
+              <h2 className="font-sans font-light text-[clamp(22px,2.4vw,34px)] tracking-[-0.005em] text-text">
+                Mis préstamos
+              </h2>
+              <span className="font-micro text-[10px] uppercase tracking-[0.12em] text-acid">
+                {prestados.length} {prestados.length === 1 ? 'libro' : 'libros'}
+              </span>
+            </div>
+
+            {/* El contador. Cuando se pasa, se vuelve la barra de opciones. */}
+            <div className={`border p-4 mb-5 ${vencido ? 'border-loan' : 'border-rule'} bg-bg-soft`}>
+              {vencido ? (
+                <>
+                  <p className="font-mono text-[clamp(13px,1.2vw,16px)] text-loan">
+                    &gt; se te acabó el tiempo. {fechaLimite && <>vencieron el {formatFechaCorta(fechaLimite)}.</>}
+                  </p>
+                  <p className="font-mono text-[12px] opacity-70 mt-2 leading-relaxed">
+                    puedes traerlos en horario, sin cita, o darte más tiempo aquí mismo. lo que no queremos es que se queden perdidos.
+                  </p>
+                </>
+              ) : (
+                <p className="font-mono text-[clamp(13px,1.2vw,16px)] text-text">
+                  &gt; te {diasRestantes === 1 ? 'queda' : 'quedan'}{' '}
+                  <span className="text-text-bright">{diasRestantes} {diasRestantes === 1 ? 'día' : 'días'}</span>
+                  {fechaLimite && <span className="opacity-60"> · hasta el {formatFechaCorta(fechaLimite)}</span>}
+                </p>
+              )}
+
+              <div className="flex flex-wrap gap-2 mt-4">
+                {[7, 14, 30].map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => extender(d)}
+                    disabled={trabajando === 'extender'}
+                    className="font-mono text-[12px] px-3 py-2 border border-rule text-text-dim hover:border-rule-strong hover:text-text transition-colors disabled:opacity-30"
+                  >
+                    +{d} días
+                  </button>
+                ))}
+              </div>
+              <p className="font-mono text-[11px] opacity-50 mt-3 leading-relaxed">
+                extiende si te falta tiempo, pero avísanos así. si alguien más trae ese título en su morral, la extensión es más corta porque te lo está esperando.
+              </p>
+              <p className="font-mono text-[11px] opacity-50 mt-2">
+                para devolver no necesitas cita: lunes a viernes, de 10:30 a 14:30 y de 16:00 a 18:30, en Europa 13, Coyoacán.
+              </p>
+            </div>
+
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
-              {visitas.map((p) => (
+              {prestados.map((p) => (
                 <Link key={p.id} href={`/biblioteca/${p.libros.id}`} className="block opacity-95 hover:opacity-100">
                   <div className="aspect-[2/3] bg-bg-soft flex items-center justify-center text-text-dim p-2 text-center overflow-hidden text-[10px] mb-2">
                     <Cover titulo={p.libros.titulo} portada_url={p.libros.portada_url} isbn={p.libros.isbn} autor={p.libros.autor} />
@@ -440,16 +569,13 @@ export default function MiTlacuiloPage() {
                   <p className="font-medium leading-tight text-[clamp(11px,0.9vw,14px)] line-clamp-2">{p.libros.titulo}</p>
                   <p className="opacity-70 text-[10px] line-clamp-1">{p.libros.autor ?? '—'}</p>
                   <p className="font-mono text-[10px] uppercase tracking-wider mt-1 opacity-70">
-                    {p.visit_at ? <>· {formatVisita(p.visit_at)}</> : null}
-                  </p>
-                  <p className="font-mono text-[10px] uppercase tracking-wider opacity-50">
-                    · {p.status === 'apartado' ? 'apartado' : 'recogido'}
+                    {p.due_at ? <>· vuelve el {formatFechaCorta(p.due_at)}</> : null}
                   </p>
                 </Link>
               ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* ============ HISTORIAL · préstamos devueltos ============ */}
         {historial.length > 0 && (

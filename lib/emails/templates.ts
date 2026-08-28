@@ -180,7 +180,10 @@ tlacuilo@tlacuilo.org
 
   return {
     subject,
-    html: shell('préstamo confirmado', body),
+    html: shell('préstamo confirmado', body, {
+      label: 'agendar mi devolución',
+      href: 'https://www.tlacuilo.org/mi-tlacuilo',
+    }),
     text,
   }
 }
@@ -210,8 +213,10 @@ ${librosToText(libros)}
 
 fecha límite: ${fechaTexto}
 
-si necesitas más tiempo, escríbenos a tlacuilo@tlacuilo.org.
-si ya terminaste, agéndate para regresar a la biblioteca.
+este no lo pudimos extender solo: alguien más lo está esperando.
+
+tráelo sin cita, de lunes a viernes, de 10:30 a 14:30 y de 16:00 a 18:30,
+en Europa 13, Coyoacán.
 
 tlacuilo. biblioteca pública en coyoacán.
 `.trim()
@@ -231,15 +236,16 @@ tlacuilo. biblioteca pública en coyoacán.
       <span style="color: #9091c4; font-size: 16px;">${escapeHtml(fechaTexto)}</span>
     </p>
     <p style="margin: 20px 0 0 0; font-size: 13px; color: #888;">
-      si necesitas otra semana, escríbenos. si ya terminaste, agéndate para regresar.
+      este no lo pudimos extender solo: alguien más lo está esperando.
+      tráelo sin cita, de lunes a viernes, de 10:30 a 14:30 y de 16:00 a 18:30.
     </p>
   `
 
   return {
     subject,
     html: shell('te quedan días con tu morral', body, {
-      label: 'agendar devolución',
-      href: 'https://tlacuilo.org/mi-tlacuilo',
+      label: 'ver lo que traigo',
+      href: 'https://www.tlacuilo.org/mi-tlacuilo',
     }),
     text,
   }
@@ -293,7 +299,7 @@ tlacuilo. biblioteca pública en coyoacán.
     subject,
     html: shell('gracias por devolver', body, {
       label: 'explorar la biblioteca',
-      href: 'https://tlacuilo.org/biblioteca',
+      href: 'https://www.tlacuilo.org/biblioteca',
     }),
     text,
   }
@@ -307,7 +313,7 @@ export const DIRECCION_BIBLIOTECA = 'Europa 13, Coyoacán'
 
 function bloqueDeVisita(iso: string | Date): string {
   const d = typeof iso === 'string' ? new Date(iso) : iso
-  return d.getHours() < 14 ? 'mañana · 10:00 a 14:30' : 'tarde · 16:00 a 19:00'
+  return d.getHours() < 14 ? 'mañana · 10:30 a 14:30' : 'tarde · 16:00 a 18:30'
 }
 
 export function emailCitaAgendada(params: {
@@ -378,9 +384,9 @@ tlacuilo@tlacuilo.org
 // va a la biblioteca, no al lector
 // ============================================
 export const EMAILS_EQUIPO = [
-  'tlacuilo.biblioteca@gmail.com',
-  'sammantha.lucia@gmail.com',
-  'marinaorracal@gmail.com',
+  'tlacuilo@tlacuilo.org',
+  'sammantha@tlacuilo.org',
+  'marina@tlacuilo.org',
 ]
 
 export function emailNuevaReservaEquipo(params: {
@@ -557,8 +563,12 @@ export function emailReservaConfirmada(params: {
   handle: string
   libros: LibroEmail[]
   visitAt: string
+  /** Recado que el equipo escribe en el panel al confirmar. Opcional. */
+  nota?: string | null
+  /** Enlace de un clic para soltar la visita si no va a poder venir. */
+  cancelUrl?: string
 }): EmailContent {
-  const { handle, libros, visitAt } = params
+  const { handle, libros, visitAt, nota, cancelUrl } = params
   const fecha = formatFecha(visitAt)
   const bloque = bloqueDeVisita(visitAt)
   const gcal = linkGoogleCalendar(visitAt, libros)
@@ -580,6 +590,26 @@ export function emailReservaConfirmada(params: {
     <p style="margin: 0 0 14px 0; font-size: 15px; color: #c5c5e8;">${escapeHtml(fecha)} · ${escapeHtml(bloque)}</p>
     <p style="margin: 0 0 4px 0; font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.1em;">dónde</p>
     <p style="margin: 0 0 8px 0; font-size: 15px; color: #c5c5e8;">${escapeHtml(DIRECCION_BIBLIOTECA)}</p>
+    ${
+      nota && nota.trim()
+        ? `<div style="margin: 20px 0 0 0; padding: 14px 16px; border-left: 2px solid #9091c4; background: #1c1c26;">
+      <p style="margin: 0 0 6px 0; font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.1em;">de nosotros para ti</p>
+      <p style="margin: 0; font-size: 14px; color: #c5c5e8; white-space: pre-line;">${escapeHtml(nota.trim())}</p>
+    </div>`
+        : ''
+    }
+    <p style="margin: 24px 0 0 0; font-size: 13px; color: #c5c5e8;">
+      ya fuimos por ${n === 1 ? 'tu libro' : 'tus libros'} y ${n === 1 ? 'te está esperando' : 'te están esperando'}.
+      si ese día no vas a poder venir, avísanos y lo soltamos:
+      ${
+        cancelUrl
+          ? `<a href="${escapeHtml(cancelUrl)}" style="color: #9091c4;">no voy a poder ir</a>`
+          : 'escríbenos a tlacuilo@tlacuilo.org'
+      }.
+    </p>
+    <p style="margin: 10px 0 0 0; font-size: 12px; color: #888;">
+      cuando te los lleves son tuyos 30 días. el contador vive en tu perfil.
+    </p>
   `
 
   const text = `tu reserva está confirmada
@@ -590,6 +620,12 @@ ${librosToText(libros)}
 
 cuándo: ${fecha} · ${bloque}
 dónde: ${DIRECCION_BIBLIOTECA}
+${nota && nota.trim() ? `\nde nosotros para ti:\n${nota.trim()}\n` : ''}
+ya fuimos por ${n === 1 ? 'tu libro' : 'tus libros'} y ${n === 1 ? 'te está esperando' : 'te están esperando'}.
+si ese día no vas a poder venir, avísanos y lo soltamos:
+${cancelUrl ?? 'escríbenos a tlacuilo@tlacuilo.org'}
+
+cuando te los lleves son tuyos 30 días. el contador vive en tu perfil.
 
 agrégalo a tu google calendar:
 ${gcal}
@@ -602,6 +638,252 @@ tlacuilo · biblioteca pública · cdmx
     html: shell('tu reserva está confirmada', body, {
       label: 'agregar a mi google calendar →',
       href: gcal,
+    }),
+    text,
+  }
+}
+
+
+// ============================================
+// EMAIL 4: DEVOLUCIÓN VENCIDA
+// dispara una sola vez cuando due_at ya pasó (cron job)
+// tono: cero culpa. la extensión siempre se ofrece aquí.
+// ============================================
+export function emailDevolucionVencida(params: {
+  handle: string
+  libros: LibroEmail[]
+  dueAt: string | Date
+  /** true = segundo y último aviso, a los 15 días. Tono más de "¿todo bien?". */
+  ultimo?: boolean
+}): EmailContent {
+  const { handle, libros, dueAt, ultimo = false } = params
+  const fechaTexto = formatFecha(dueAt)
+  const n = libros.length
+  const cuantos = n === 1 ? 'tu libro' : `tus ${n} libros`
+
+  const subject = ultimo
+    ? `${handle}, ¿todo bien?`
+    : n === 1
+      ? 'tu libro ya cumplió su mes'
+      : 'tus libros ya cumplieron su mes'
+
+  const intro = ultimo
+    ? `pasaron dos semanas desde que te escribimos por ${cuantos} y siguen contigo. ¿todo bien por allá?`
+    : `el mes de ${cuantos} terminó el ${fechaTexto}.`
+
+  const text = `
+${handle},
+
+${intro}
+
+si ya acabaste, tráelos cuando puedas, sin cita: estamos de lunes a viernes,
+de 10:30 a 14:30 y de 16:00 a 18:30, en Europa 13, Coyoacán.
+
+si te falta tiempo, extiende tu préstamo desde tu perfil. es un botón, pero
+avísanos: estos libros son de todos y hay quien los está esperando.
+
+https://www.tlacuilo.org/mi-tlacuilo
+
+tlacuilo. biblioteca pública en coyoacán.
+tlacuilo@tlacuilo.org
+`.trim()
+
+  const body = `
+    <h1 style="margin: 0 0 8px 0; font-size: 22px; color: #e8e8f0; font-weight: 500;">
+      ${escapeHtml(handle)},
+    </h1>
+    <p style="margin: 0 0 20px 0; font-size: 14px; color: #c5c5e8;">
+      ${escapeHtml(intro)}
+    </p>
+    <p style="margin: 0 0 12px 0; font-size: 14px; color: #c5c5e8;">
+      si ya acabaste, tráelos cuando puedas, sin cita. estamos de lunes a viernes,
+      de 10:30 a 14:30 y de 16:00 a 18:30, en Europa 13, Coyoacán.
+    </p>
+    <p style="margin: 12px 0 0 0; font-size: 14px; color: #c5c5e8;">
+      si te falta tiempo, extiende tu préstamo desde tu perfil. es un botón, pero avísanos.
+    </p>
+    <p style="margin: 16px 0 0 0; font-size: 13px; color: #888;">
+      estos libros son de todos, y que circulen es todo lo que nos importa.
+    </p>
+  `
+
+  return {
+    subject,
+    html: shell(ultimo ? '¿todo bien?' : 'ya cumplió su mes', body, {
+      label: 'ver mis préstamos',
+      href: 'https://www.tlacuilo.org/mi-tlacuilo',
+    }),
+    text,
+  }
+}
+
+// ============================================
+// EMAIL 5: RESERVA SIN CONFIRMAR · DISCULPA + REAGENDAR
+// se manda cuando una visita se pasó sin que la confirmáramos.
+// los libros vuelven al morral del lector, tal cual los escogió.
+// ============================================
+export function emailReagendarReserva(params: {
+  handle: string
+  libros: LibroEmail[]
+  visitAt: string | Date
+}): EmailContent {
+  const { handle, libros, visitAt } = params
+  const fechaTexto = formatFecha(visitAt)
+
+  const subject = 'no te confirmamos. tus libros siguen aquí.'
+
+  const text = `
+${handle},
+
+apartaste estos libros para el ${fechaTexto} y nunca te confirmamos la visita.
+eso fue nuestro, no tuyo.
+
+${librosToText(libros)}
+
+te los guardamos de vuelta en tu morral, tal cual los escogiste.
+elige el día que quieras venir y esta vez sí te contestamos.
+
+tlacuilo. biblioteca pública en coyoacán.
+tlacuilo@tlacuilo.org
+`.trim()
+
+  const body = `
+    <h1 style="margin: 0 0 8px 0; font-size: 22px; color: #e8e8f0; font-weight: 500;">
+      ${escapeHtml(handle)},
+    </h1>
+    <p style="margin: 0 0 8px 0; font-size: 14px; color: #c5c5e8;">
+      apartaste estos libros para el
+      <span style="color: #9091c4;">${escapeHtml(fechaTexto)}</span>
+      y nunca te confirmamos la visita.
+    </p>
+    <p style="margin: 0 0 20px 0; font-size: 13px; color: #888;">
+      eso fue nuestro, no tuyo.
+    </p>
+    <ul style="margin: 0 0 24px 0; padding-left: 20px; list-style: '· ';">
+      ${librosToHtml(libros)}
+    </ul>
+    <p style="margin: 0 0 12px 0; font-size: 14px; color: #c5c5e8;">
+      te los guardamos de vuelta en tu morral, tal cual los escogiste.
+    </p>
+    <p style="margin: 12px 0 0 0; font-size: 13px; color: #888;">
+      elige el día que quieras venir y esta vez sí te contestamos.
+    </p>
+  `
+
+  return {
+    subject,
+    html: shell('tus libros siguen aquí', body, {
+      label: 'reagendar mi visita',
+      href: 'https://www.tlacuilo.org/checkout',
+    }),
+    text,
+  }
+}
+
+
+// ============================================
+// EMAIL 6: RESUMEN DE LA MAÑANA (al equipo)
+// un solo correo al día en vez de uno por reserva
+// ============================================
+export type VisitaResumen = {
+  quien: string
+  bloque: string
+  objetos: number
+  titulos: string[]
+  telefono: string | null
+  url: string
+}
+
+export type PendienteResumen = {
+  quien: string
+  titulo: string
+  dias: number
+  url: string
+}
+
+export function emailResumenDiario(params: {
+  fecha: string
+  visitas: VisitaResumen[]
+  vencidos: PendienteResumen[]
+  nuevasReservas: number
+}): EmailContent {
+  const { fecha, visitas, vencidos, nuevasReservas } = params
+
+  const subject =
+    visitas.length === 0
+      ? `hoy no viene nadie · ${fecha}`
+      : `hoy vienen ${visitas.length} · ${fecha}`
+
+  const lineaVisita = (v: VisitaResumen) =>
+    `  · ${v.quien} · ${v.bloque} · ${v.objetos} objeto${v.objetos === 1 ? '' : 's'}${v.telefono ? ` · tel ${v.telefono}` : ''}\n    ${v.titulos.join('\n    ')}`
+
+  const text = `
+${fecha}
+
+QUIÉN VIENE HOY
+${visitas.length === 0 ? '  nadie.' : visitas.map(lineaVisita).join('\n\n')}
+
+DEBEN TRAER LIBROS
+${vencidos.length === 0 ? '  nadie, todo en orden.' : vencidos.map((v) => `  · ${v.quien} · ${v.titulo} · ${v.dias} días`).join('\n')}
+${nuevasReservas > 0 ? `\nreservas nuevas desde ayer: ${nuevasReservas}` : ''}
+
+el panel: https://www.tlacuilo.org/admin/prestamos
+`.trim()
+
+  const body = `
+    <p style="margin: 0 0 24px 0; font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.1em;">
+      ${escapeHtml(fecha)}
+    </p>
+
+    <p style="margin: 0 0 10px 0; font-size: 12px; color: #9091c4; text-transform: uppercase; letter-spacing: 0.1em;">
+      quién viene hoy
+    </p>
+    ${
+      visitas.length === 0
+        ? '<p style="margin: 0 0 28px 0; font-size: 14px; color: #888;">nadie.</p>'
+        : visitas
+            .map(
+              (v) => `
+    <div style="margin: 0 0 16px 0; padding: 12px 14px; background: #1c1c26; border-left: 2px solid #9091c4;">
+      <p style="margin: 0 0 4px 0; font-size: 15px; color: #e8e8f0;">
+        <a href="${escapeHtml(v.url)}" style="color: #e8e8f0; text-decoration: none;">${escapeHtml(v.quien)}</a>
+      </p>
+      <p style="margin: 0 0 8px 0; font-size: 12px; color: #888;">
+        ${escapeHtml(v.bloque)} · ${v.objetos} objeto${v.objetos === 1 ? '' : 's'}${v.telefono ? ` · tel ${escapeHtml(v.telefono)}` : ''}
+      </p>
+      <p style="margin: 0; font-size: 13px; color: #c5c5e8;">
+        ${v.titulos.map((t) => escapeHtml(t)).join('<br>')}
+      </p>
+    </div>`
+            )
+            .join('') + '<div style="height: 12px;"></div>'
+    }
+
+    <p style="margin: 24px 0 10px 0; font-size: 12px; color: #9091c4; text-transform: uppercase; letter-spacing: 0.1em;">
+      deben traer libros
+    </p>
+    ${
+      vencidos.length === 0
+        ? '<p style="margin: 0; font-size: 14px; color: #888;">nadie, todo en orden.</p>'
+        : `<ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #c5c5e8;">${vencidos
+            .map(
+              (v) =>
+                `<li style="margin-bottom: 6px;"><a href="${escapeHtml(v.url)}" style="color: #c5c5e8;">${escapeHtml(v.quien)}</a> · ${escapeHtml(v.titulo)} · <span style="color: #d9705f;">${v.dias} días</span></li>`
+            )
+            .join('')}</ul>`
+    }
+    ${
+      nuevasReservas > 0
+        ? `<p style="margin: 24px 0 0 0; font-size: 13px; color: #888;">${nuevasReservas} reserva${nuevasReservas === 1 ? '' : 's'} nueva${nuevasReservas === 1 ? '' : 's'} desde ayer.</p>`
+        : ''
+    }
+  `
+
+  return {
+    subject,
+    html: shell('resumen de hoy', body, {
+      label: 'abrir el panel',
+      href: 'https://www.tlacuilo.org/admin/prestamos',
     }),
     text,
   }

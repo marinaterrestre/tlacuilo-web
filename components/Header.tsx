@@ -36,6 +36,7 @@ export default function Header({ slim = false, sticky = true }: HeaderProps) {
   const [authChecked, setAuthChecked] = useState(false)
   const [q, setQ] = useState('')
   const [avisos, setAvisos] = useState<number>(0)
+  const [esEditor, setEsEditor] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -55,6 +56,7 @@ export default function Header({ slim = false, sticky = true }: HeaderProps) {
   useEffect(() => {
     if (!user) {
       setAvisos(0)
+      setEsEditor(false)
       return
     }
     let mounted = true
@@ -64,7 +66,12 @@ export default function Header({ slim = false, sticky = true }: HeaderProps) {
         .select('rol')
         .eq('id', user.id)
         .single()
-      if (!mounted || perfil?.rol !== 'editor') return
+      if (!mounted) return
+      if (perfil?.rol !== 'editor') {
+        setEsEditor(false)
+        return
+      }
+      setEsEditor(true)
       const hoy = new Date()
       hoy.setHours(0, 0, 0, 0)
       const { count } = await supabase
@@ -120,12 +127,14 @@ export default function Header({ slim = false, sticky = true }: HeaderProps) {
 
         <div className="flex items-center gap-5 shrink-0">
           <MorralHeader />
-          {avisos > 0 && (
+          {/* La puerta a la zona de trabajo. Separada de MI TLACUILO a
+              propósito: el perfil es tuyo, admin es la biblioteca. */}
+          {esEditor && (
             <Link
-              href="/admin/notificaciones"
+              href="/admin"
               className="font-mono text-[clamp(11px,1.05vw,14px)] tracking-[0.12em] uppercase text-text hover:text-text-bright transition-colors"
             >
-              AVISOS <span className="accent-detail">[{avisos}]</span>
+              ADMIN{avisos > 0 && <span className="accent-detail"> [{avisos}]</span>}
             </Link>
           )}
           <Link

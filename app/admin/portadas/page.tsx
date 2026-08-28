@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { comprimirImagen } from '@/lib/imagen'
 import TecaLayout from '@/components/TecaLayout'
+import AdminNav from '@/components/AdminNav'
 import Cover from '@/components/Cover'
 
 /* ============================================================
@@ -86,6 +87,7 @@ export default function AdminPortadasPage() {
 
   return (
     <TecaLayout>
+      <AdminNav />
       <section className="px-10 pt-10 pb-16 max-w-6xl mx-auto max-md:px-5">
         <p className="font-micro uppercase tracking-[0.12em] text-[11px] text-acid mb-3">
           admin · portadas

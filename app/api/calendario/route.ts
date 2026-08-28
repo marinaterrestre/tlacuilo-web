@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic'
  *   https://www.tlacuilo.org/api/calendario?token=...
  *
  * Incluye visitas de 30 días atrás en adelante (apartado y recogido).
- * Bloques: mañana 10:00-14:30 · tarde 16:00-19:00.
+ * Bloques: mañana 10:30-14:30 · tarde 16:00-18:30.
  */
 
 type Row = {
@@ -72,9 +72,9 @@ export async function GET(req: NextRequest) {
     const inicio = new Date(rows[0].visit_at)
     const fin = new Date(inicio)
     if (inicio.getUTCHours() < 20 && new Date(rows[0].visit_at).getHours() < 14) {
-      fin.setMinutes(fin.getMinutes() + 270) // bloque mañana 10:00-14:30
+      fin.setMinutes(fin.getMinutes() + 240) // bloque mañana 10:30-14:30
     } else {
-      fin.setMinutes(fin.getMinutes() + 180) // bloque tarde 16:00-19:00
+      fin.setMinutes(fin.getMinutes() + 150) // bloque tarde 16:00-18:30
     }
     const handle = rows[0].perfiles?.handle ?? 'lector'
     const n = rows.length

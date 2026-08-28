@@ -165,7 +165,7 @@ export default async function Home() {
             <div className="text-text-dim">los comunes</div>
             <div className="text-text-dim mt-2">
               estudio pedro reyes<br />
-              lun–vie · 10:00–14:30 · 16:00–19:00
+              lun–vie · 10:30–14:30 · 16:00–18:30
             </div>
           </div>
 
@@ -181,6 +181,9 @@ export default async function Home() {
             </a>
             <Link href="/manifesto" className="hover:text-text-bright transition-colors">
               → manifiesto
+            </Link>
+            <Link href="/preguntas" className="hover:text-text-bright transition-colors">
+              → cómo funciona
             </Link>
             <Link href="/proximamente" className="hover:text-text-bright transition-colors">
               → newsletter

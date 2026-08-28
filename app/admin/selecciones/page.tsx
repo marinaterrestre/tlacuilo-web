@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import TecaLayout from '@/components/TecaLayout'
+import AdminNav from '@/components/AdminNav'
 import Cover from '@/components/Cover'
 
 /* ============================================================
@@ -183,6 +184,7 @@ export default function AdminSeleccionesPage() {
 
   return (
     <TecaLayout>
+      <AdminNav />
       <section className="px-8 pt-6 pb-16 max-w-5xl mx-auto">
         <h1 className="font-mono uppercase tracking-[0.18em] text-text text-[11px] mb-2">
           admin / selecciones
