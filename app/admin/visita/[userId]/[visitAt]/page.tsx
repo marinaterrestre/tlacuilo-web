@@ -57,6 +57,7 @@ export default function AdminVisitaPage({
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'mal'; txt: string } | null>(null)
   const [subiendo, setSubiendo] = useState<string | null>(null)
   const [confirmarSoltar, setConfirmarSoltar] = useState(false)
+  const [noEncontrado, setNoEncontrado] = useState<string | null>(null)
 
   const cargar = useCallback(async () => {
     if (!isEditor) return
@@ -270,6 +271,40 @@ export default function AdminVisitaPage({
                         <span className={`text-[10px] uppercase tracking-wider ${p.status === 'devuelto' ? 'text-available' : 'opacity-50'}`}>
                           {p.status}
                         </span>
+                        {/* Pasa: el libro no aparece a la hora de juntar. La
+                            visita sigue con el resto y este vuelve a su morral. */}
+                        {p.status === 'apartado' && (
+                          noEncontrado === p.id ? (
+                            <span className="flex items-center gap-2">
+                              <span className="text-[10px] uppercase tracking-wider text-loan">¿no apareció?</span>
+                              <button
+                                onClick={async () => {
+                                  const r = await llamar('/api/admin/no-encontrado', { prestamoId: p.id }, 'no-encontrado')
+                                  setNoEncontrado(null)
+                                  if (r) cargar()
+                                }}
+                                disabled={working === 'no-encontrado'}
+                                className="text-[10px] uppercase tracking-wider border border-loan text-loan px-2 py-1 hover:bg-loan hover:text-bg disabled:opacity-40"
+                              >
+                                sí, quitarlo
+                              </button>
+                              <button
+                                onClick={() => setNoEncontrado(null)}
+                                className="text-[10px] uppercase tracking-wider opacity-50 hover:opacity-100 underline"
+                              >
+                                no
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => setNoEncontrado(p.id)}
+                              className="text-[10px] uppercase tracking-[0.08em] text-text-dim border border-rule px-2 py-1.5 hover:text-loan hover:border-loan transition-colors"
+                              title="no lo encontramos: vuelve a su morral y se marca en el catálogo"
+                            >
+                              no lo encontramos
+                            </button>
+                          )
+                        )}
                       </div>
                     </div>
                   </div>
@@ -283,8 +318,9 @@ export default function AdminVisitaPage({
                 <p className="text-[11px] uppercase tracking-[0.12em] text-acid mb-2">paso 2 · ya está aquí, se los lleva</p>
                 <p className="text-[13px] opacity-70 mb-3">
                   {fotosSalidaListas
-                    ? 'Todas las fotos están. Al confirmar se les pone fecha de devolución a 30 días y le llega el correo con la fecha.'
+                    ? 'Todas las fotos están. Al confirmar se les pone fecha de devolución a 30 días y aparecen en sus préstamos.'
                     : `Faltan ${apartados.filter((p) => !p.foto_registro_url).length} foto(s) de salida. Sin foto no sale nada.`}
+                  {' '}Si alguno no apareció, quítalo con "no lo encontramos" y la visita sale con el resto.
                 </p>
                 <button
                   onClick={async () => {
@@ -433,7 +469,6 @@ function FotoSlot({
           <input
             type="file"
             accept="image/*"
-            capture="environment"
             className="hidden"
             disabled={subiendo}
             onChange={(e) => onFile(e.target.files?.[0] ?? null)}

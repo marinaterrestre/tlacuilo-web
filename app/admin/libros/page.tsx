@@ -24,7 +24,7 @@ type Libro = {
 
 const PAGE_SIZE = 25
 
-const MOTIVOS_PRESET = ['solo consulta', 'reparación', 'estudio', 'archivado']
+const MOTIVOS_PRESET = ['solo consulta', 'reparación', 'estudio', 'archivado', 'no lo encontramos']
 
 export default function AdminLibrosPage() {
   const router = useRouter()
