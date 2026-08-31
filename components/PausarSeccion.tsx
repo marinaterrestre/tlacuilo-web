@@ -12,7 +12,9 @@ type Categoria = { categoria: string; libros_count: number }
  * Pausar una sección del catálogo.
  *
  * Para las vacaciones, o para cuando una parte del acervo no se puede prestar
- * un rato. Lo pausado desaparece del catálogo y nadie lo puede apartar.
+ * un rato. Lo pausado SIGUE VISIBLE en el catálogo, con su ficha y su portada:
+ * solo queda marcado como no disponible y no se puede apartar. El acervo se
+ * sigue viendo completo, que es el punto de tenerlo público.
  *
  * Pausar solo apaga lo que estaba disponible, y reanudar solo enciende lo que
  * esta misma pausa apagó: los libros prestados, los dañados y los que no se
@@ -76,8 +78,8 @@ export default function PausarSeccion() {
       setMsg({
         tipo: 'ok',
         txt: porConfirmar.accion === 'pausar'
-          ? `listo, ${r.afectados} objetos salieron del catálogo. nadie los puede apartar hasta que los reactives.`
-          : `listo, ${r.afectados} objetos volvieron al catálogo.`,
+          ? `listo, ${r.afectados} objetos quedaron como no disponibles. se siguen viendo, pero nadie los puede apartar hasta que los reactives.`
+          : `listo, ${r.afectados} objetos se pueden volver a apartar.`,
       })
     }
     setPorConfirmar(null)
@@ -96,8 +98,9 @@ export default function PausarSeccion() {
         <div className="px-4 pb-4 border-t border-rule pt-4">
           <p className="font-mono text-[12px] opacity-60 mb-4 max-w-[70ch] leading-relaxed">
             Para las vacaciones, o cuando una parte del acervo no se pueda prestar. Lo pausado
-            desaparece del catálogo y nadie lo puede apartar. Los libros que ya están prestados,
-            los dañados y los que no se encontraron no se tocan.
+            se sigue viendo en el catálogo, con su ficha y su portada: solo queda marcado como
+            no disponible y nadie lo puede apartar. Los libros que ya están prestados, los
+            dañados y los que no se encontraron no se tocan.
           </p>
 
           <div className="flex flex-wrap gap-2 mb-3">
@@ -141,8 +144,8 @@ export default function PausarSeccion() {
             <div className="flex flex-wrap items-center gap-3 border border-loan/50 p-3">
               <span className="font-mono text-[12px] text-loan">
                 {porConfirmar.accion === 'pausar'
-                  ? `vas a sacar ${porConfirmar.n} objetos del catálogo. ¿segura?`
-                  : `vas a regresar ${porConfirmar.n} objetos al catálogo. ¿segura?`}
+                  ? `vas a marcar ${porConfirmar.n} objetos como no disponibles. ¿segura?`
+                  : `vas a volver a prestar ${porConfirmar.n} objetos. ¿segura?`}
               </span>
               <button
                 onClick={ejecutar}

@@ -4,9 +4,14 @@ import { requireEditor, esError } from '@/lib/server/editor'
 
 /**
  * POST /api/admin/pausar-seccion
- * Apaga o vuelve a encender una sección entera del catálogo: una teca
+ * Apaga o vuelve a encender el préstamo de una sección entera: una teca
  * completa o una categoría. Para las vacaciones, o para cuando una parte del
  * acervo no se puede prestar por un rato.
+ *
+ * OJO: pausar NO esconde nada. El catálogo no filtra por disponibilidad, así
+ * que los libros pausados se siguen viendo con su ficha y su portada; lo único
+ * que cambia es que quedan marcados como no disponibles y desaparece su botón
+ * de apartar. El acervo sigue siendo público completo.
  *
  * La regla que hace esto seguro: al pausar SOLO se tocan los libros que
  * estaban disponibles, y se marcan con el motivo "en pausa". Al reanudar SOLO
