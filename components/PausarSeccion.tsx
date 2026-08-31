@@ -6,6 +6,13 @@ import { authHeaders } from '@/components/useEditorGate'
 
 const TECAS = ['biblioteca', 'artoteca', 'videoteca'] as const
 
+/**
+ * Lo que va a leer la gente en la ficha del libro: "no disponible · <motivo> ·
+ * vuelve pronto". Tiene que coincidir con la lista del servidor, que la usa
+ * como llave para reactivar sin tocar lo dañado ni lo prestado.
+ */
+const MOTIVOS = ['no disponible por ahora', 'de vacaciones', 'no se presta este mes'] as const
+
 type Categoria = { categoria: string; libros_count: number }
 
 /**
@@ -24,6 +31,7 @@ export default function PausarSeccion() {
   const [abierto, setAbierto] = useState(false)
   const [tipo, setTipo] = useState<'teca' | 'categoria'>('teca')
   const [valor, setValor] = useState<string>('biblioteca')
+  const [motivo, setMotivo] = useState<string>(MOTIVOS[0])
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [working, setWorking] = useState(false)
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'mal'; txt: string } | null>(null)
@@ -43,7 +51,7 @@ export default function PausarSeccion() {
       const res = await fetch('/api/admin/pausar-seccion', {
         method: 'POST',
         headers: await authHeaders(),
-        body: JSON.stringify({ tipo, valor, accion, dry }),
+        body: JSON.stringify({ tipo, valor, accion, motivo, dry }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error)
@@ -139,6 +147,34 @@ export default function PausarSeccion() {
                   </option>
                 ))}
           </select>
+
+          <div className="mb-4">
+            <p className="font-mono text-[11px] uppercase tracking-wider opacity-50 mb-2">
+              qué va a leer la gente en la ficha
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {MOTIVOS.map((m) => (
+                <button
+                  key={m}
+                  onClick={() => {
+                    setMotivo(m)
+                    setPorConfirmar(null)
+                    setMsg(null)
+                  }}
+                  className={`font-mono text-[11px] px-3 py-2 border transition-colors ${
+                    motivo === m
+                      ? 'border-invert-bg bg-invert-bg text-invert-fg'
+                      : 'border-rule text-text-dim hover:border-rule-strong'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            <p className="font-mono text-[11px] opacity-40 mt-2">
+              se va a ver así: no disponible · {motivo} · vuelve pronto
+            </p>
+          </div>
 
           {porConfirmar ? (
             <div className="flex flex-wrap items-center gap-3 border border-loan/50 p-3">

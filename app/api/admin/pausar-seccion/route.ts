@@ -23,10 +23,23 @@ import { requireEditor, esError } from '@/lib/server/editor'
  *
  * Auth: Bearer <access_token> de un editor.
  * Body: { tipo: 'teca' | 'categoria', valor: string,
- *         accion: 'pausar' | 'reanudar', dry?: boolean }
+ *         accion: 'pausar' | 'reanudar', motivo?: string, dry?: boolean }
  */
-const MOTIVO_PAUSA = 'en pausa'
+/**
+ * Los motivos que puede tener una PAUSA. Son también la llave para levantarla:
+ * al reactivar solo se encienden los libros que traigan uno de estos.
+ *
+ * Es importante que no se crucen con los motivos que se ponen a mano libro por
+ * libro (reparación, solo consulta, estudio, archivado, no lo encontramos):
+ * esos nunca se deben encender solos, y los libros prestados no traen motivo.
+ */
+export const MOTIVOS_PAUSA = [
+  'no disponible por ahora',
+  'de vacaciones',
+  'no se presta este mes',
+] as const
 
+type MotivoPausa = typeof MOTIVOS_PAUSA[number]
 type Tipo = 'teca' | 'categoria'
 
 /** Cuántos libros de esa sección están en el estado que nos importa. */
@@ -38,7 +51,7 @@ async function contar(
 ) {
   let q = service.from('libros').select('id', { count: 'exact', head: true })
   q = tipo === 'teca' ? q.eq('teca', valor) : q.contains('categorias', [valor])
-  q = filtro === 'disponibles' ? q.eq('disponible', true) : q.eq('motivo', MOTIVO_PAUSA)
+  q = filtro === 'disponibles' ? q.eq('disponible', true) : q.in('motivo', [...MOTIVOS_PAUSA])
   const { count, error } = await q
   return { count: count ?? 0, error }
 }
@@ -47,16 +60,17 @@ async function aplicar(
   service: SupabaseClient,
   tipo: Tipo,
   valor: string,
-  accion: 'pausar' | 'reanudar'
+  accion: 'pausar' | 'reanudar',
+  motivo: MotivoPausa
 ) {
   const cambio =
     accion === 'pausar'
-      ? { disponible: false, motivo: MOTIVO_PAUSA }
+      ? { disponible: false, motivo }
       : { disponible: true, motivo: null }
 
   let q = service.from('libros').update(cambio)
   q = tipo === 'teca' ? q.eq('teca', valor) : q.contains('categorias', [valor])
-  q = accion === 'pausar' ? q.eq('disponible', true) : q.eq('motivo', MOTIVO_PAUSA)
+  q = accion === 'pausar' ? q.eq('disponible', true) : q.in('motivo', [...MOTIVOS_PAUSA])
   const { error } = await q
   return error
 }
@@ -69,12 +83,16 @@ export async function POST(req: NextRequest) {
   let tipo: Tipo
   let valor: string
   let accion: 'pausar' | 'reanudar'
+  let motivo: MotivoPausa = MOTIVOS_PAUSA[0]
   let dry = false
   try {
     const body = await req.json()
     tipo = body.tipo === 'categoria' ? 'categoria' : 'teca'
     valor = String(body.valor ?? '').trim()
     accion = body.accion === 'reanudar' ? 'reanudar' : 'pausar'
+    // Solo motivos de la lista: un motivo libre rompería la reactivación.
+    const pedido = String(body.motivo ?? '')
+    if ((MOTIVOS_PAUSA as readonly string[]).includes(pedido)) motivo = pedido as MotivoPausa
     dry = body.dry === true
     if (!valor) throw new Error()
   } catch {
@@ -89,10 +107,10 @@ export async function POST(req: NextRequest) {
   )
   if (contarErr) return NextResponse.json({ error: contarErr.message }, { status: 500 })
 
-  if (dry) return NextResponse.json({ ok: true, dry, accion, tipo, valor, afectados: count })
+  if (dry) return NextResponse.json({ ok: true, dry, accion, tipo, valor, motivo, afectados: count })
 
-  const error = await aplicar(service, tipo, valor, accion)
+  const error = await aplicar(service, tipo, valor, accion, motivo)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ ok: true, accion, tipo, valor, afectados: count })
+  return NextResponse.json({ ok: true, accion, tipo, valor, motivo, afectados: count })
 }
