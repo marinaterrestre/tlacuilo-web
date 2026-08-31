@@ -1,17 +1,18 @@
-// Sincroniza la tabla "libros" (teca=biblioteca) con el export limpio de LibraryThing.
-// Por default es DRY RUN: solo muestra que pasaria. Con --aplicar ejecuta de verdad.
-// Antes de aplicar, guarda un backup completo de la tabla en ./backup-libros-<fecha>.json
-//
-// Correr desde la raiz del repo tlacuilo-web (usa .env.local):
-//   node "<ruta a este archivo>" "<ruta al catalogo_limpio json>"            -> dry run
-//   node "<ruta a este archivo>" "<ruta al catalogo_limpio json>" --aplicar -> aplica
+// Agrega / actualiza la tabla "libros" desde un export de LibraryThing. NUNCA BORRA.
+// Pensado para exports parciales o por-fecha: en LT sacas solo lo nuevo y lo corres aqui.
+// Por default es DRY RUN (solo muestra que pasaria). Con --aplicar ejecuta de verdad.
 //
 // Que hace:
-//   BORRA   libros de biblioteca cuyo librarything_id ya no esta en el json
-//           (si un libro tiene prestamos/selecciones, NO lo borra y lo reporta)
-//   INSERTA libros del json que no existen en la DB
-//   ACTUALIZA titulo, autor, isbn, anio y categorias cuando difieren
-//   NO TOCA artoteca ni videoteca, ni portadas existentes
+//   DEDUP  si el libro ya esta en el catalogo (match por librarything_id, luego isbn13,
+//          luego titulo+autor normalizados) NO lo duplica: solo le AGREGA la(s) categoria(s)
+//          y rellena campos que esten vacios. Nunca pisa datos que ya tenga.
+//   INSERTA los libros que de verdad son nuevos, en teca=biblioteca, disponible=true.
+//   NUNCA borra, ni toca disponible / teca / prestamos / portada de lo que ya existe.
+//   IGNORA colecciones BLOQUEADAS (arte/vinilos/dvds/obras) y todos sus libros.
+//
+// Correr desde la raiz del repo tlacuilo-web (usa .env.local):
+//   node scripts/sincronizar-catalogo.mjs "<ruta al export json>"            -> dry run
+//   node scripts/sincronizar-catalogo.mjs "<ruta al export json>" --aplicar  -> aplica
 
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -39,16 +40,29 @@ if (!URL_SB || !SERVICE_KEY) {
 const rutaJson = process.argv[2]
 const APLICAR = process.argv.includes('--aplicar')
 if (!rutaJson) {
-  console.error('Uso: node sincronizar-catalogo.mjs "<ruta al json limpio>" [--aplicar]')
+  console.error('Uso: node scripts/sincronizar-catalogo.mjs "<ruta al export json>" [--aplicar]')
   process.exit(1)
 }
 
 const sb = createClient(URL_SB, SERVICE_KEY)
 
-// ---- colecciones que no son categorias tematicas ----
+// ---- colecciones sistema de LT (no son categorias tematicas) ----
 const COLS_DEFAULT = new Set([
   'Your library', 'Wishlist', 'Currently reading', 'To read', 'Read but unowned', 'Favorites',
 ])
+
+// ---- colecciones BLOQUEADAS: NUNCA entran a la web (arte/vinilos/dvds/obras por artista/galeria) ----
+// regla marina 2026-07-21: estas categorias y TODOS los libros que las contengan quedan fuera del
+// catalogo. no aparecen en la sidebar, sus libros tampoco, y no se sincronizan. blocklist permanente.
+const norm = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+const BLOQUEADAS = new Set([
+  'Psicología Social', 'Biblioteca de las Naciones', 'ARTE', 'SOMA', 'IMBA',
+  'VOZ VIVA', 'VINILES -', 'CARRILLO-GIL', 'DVDs Ciencia Ficción', 'SUSANISIMA',
+  'RAMIRO CHAVES', 'JULIETA GONZÁLEZ', 'Fundacion M', 'TEZONTLE Lucas Cantú',
+  'CIRCA Fernando Delmar', "O'GORMAN NANCARROW",
+].map(norm))
+const estaBloqueada = c => BLOQUEADAS.has(norm(c))
+const libroBloqueado = b => (b.collections || []).some(estaBloqueada)
 
 // ---- decodificar entidades HTML que LT deja en titulos/autores ----
 const ENT = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ', aacute: 'á', eacute: 'é', iacute: 'í', oacute: 'ó', uacute: 'ú', ntilde: 'ñ', Aacute: 'Á', Eacute: 'É', Iacute: 'Í', Oacute: 'Ó', Uacute: 'Ú', Ntilde: 'Ñ', uuml: 'ü', Uuml: 'Ü', auml: 'ä', ouml: 'ö', ccedil: 'ç', Ccedil: 'Ç', agrave: 'à', egrave: 'è' }
@@ -58,13 +72,11 @@ const decodificar = s => s
 
 // ---- mapear una entrada del export LT a una fila de libros ----
 function mapear(ltId, b) {
-  // autor en formato "Nombre Apellido"
   let autor = b.authors?.[0]?.fl || null
   if (!autor && b.primaryauthor) {
     const partes = b.primaryauthor.split(',')
     autor = partes.length === 2 ? `${partes[1].trim()} ${partes[0].trim()}` : b.primaryauthor
   }
-  // isbn: preferir el de 13 digitos
   let isbn = null
   const candidatos = []
   if (b.isbn && typeof b.isbn === 'object') candidatos.push(...Object.values(b.isbn))
@@ -73,7 +85,7 @@ function mapear(ltId, b) {
   isbn = limpios.find(x => x.length === 13) || limpios[0] || null
 
   const anio = (b.date || '').match(/\b(1[5-9]\d\d|20\d\d)\b/)?.[1]
-  const categorias = (b.collections || []).filter(c => !COLS_DEFAULT.has(c))
+  const categorias = (b.collections || []).filter(c => !COLS_DEFAULT.has(c) && !estaBloqueada(c))
 
   return {
     librarything_id: String(ltId),
@@ -81,27 +93,32 @@ function mapear(ltId, b) {
     autor: decodificar(autor),
     isbn,
     anio: anio ? parseInt(anio, 10) : null,
-    categorias: categorias.length ? categorias.sort() : null,
+    categorias: categorias.sort(),
   }
 }
 
-const igual = (a, b) => {
-  const na = a == null || a === '' ? null : a
-  const nb = b == null || b === '' ? null : b
-  if (Array.isArray(na) || Array.isArray(nb)) {
-    return JSON.stringify([...(na || [])].sort()) === JSON.stringify([...(nb || [])].sort())
-  }
-  return na === nb
-}
+const union = (a, b) => [...new Set([...(a || []), ...(b || [])])].sort()
+const mismasCats = (a, b) => JSON.stringify([...(a || [])].sort()) === JSON.stringify([...(b || [])].sort())
+const claveTA = (t, a) => `${norm(t)}|${norm(a)}`
 
-// ---- cargar json limpio ----
+// ---- cargar export y colapsar por libro (mismo libro 2x en LT => unir categorias) ----
 const catalogo = JSON.parse(readFileSync(rutaJson, 'utf8'))
-const deseado = new Map()
+const deseado = []
+let bloqueados = 0
+const vistos = new Map() // clave dedup dentro del export -> indice en deseado
 for (const [k, b] of Object.entries(catalogo)) {
-  const ltId = String(b.books_id || k)
-  deseado.set(ltId, mapear(ltId, b))
+  if (libroBloqueado(b)) { bloqueados++; continue }
+  const m = mapear(String(b.books_id || k), b)
+  const clave = m.isbn || `lt:${m.librarything_id}` || claveTA(m.titulo, m.autor)
+  if (vistos.has(clave)) {
+    const prev = deseado[vistos.get(clave)]
+    prev.categorias = union(prev.categorias, m.categorias)
+  } else {
+    vistos.set(clave, deseado.length)
+    deseado.push(m)
+  }
 }
-console.log(`Catalogo limpio: ${deseado.size} libros`)
+console.log(`Export: ${deseado.length} libros unicos (${bloqueados} ignorados por coleccion bloqueada)`)
 
 // ---- bajar toda la tabla libros (paginado) ----
 const filas = []
@@ -111,67 +128,54 @@ for (let desde = 0; ; desde += 1000) {
   filas.push(...data)
   if (data.length < 1000) break
 }
-console.log(`DB actual: ${filas.length} filas totales`)
+console.log(`DB actual: ${filas.length} filas`)
 
-const biblioteca = filas.filter(f => f.teca === 'biblioteca')
-const otrasTecas = filas.filter(f => f.teca !== 'biblioteca')
-const porLtId = new Map()
-const sinLtId = []
-for (const f of biblioteca) {
-  if (f.librarything_id) porLtId.set(String(f.librarything_id), f)
-  else sinLtId.push(f)
+// ---- indices para dedup: por lt_id, por isbn, por titulo+autor ----
+const porLt = new Map(), porIsbn = new Map(), porTA = new Map()
+for (const f of filas) {
+  if (f.librarything_id) porLt.set(String(f.librarything_id), f)
+  if (f.isbn) { (porIsbn.get(f.isbn) || porIsbn.set(f.isbn, []).get(f.isbn)).push(f) }
+  const kta = claveTA(f.titulo, f.autor)
+  ;(porTA.get(kta) || porTA.set(kta, []).get(kta)).push(f)
+}
+const encontrar = m => {
+  if (m.librarything_id && porLt.has(m.librarything_id)) return [porLt.get(m.librarything_id)]
+  if (m.isbn && porIsbn.has(m.isbn)) return porIsbn.get(m.isbn)
+  const kta = claveTA(m.titulo, m.autor)
+  if (m.titulo && porTA.has(kta)) return porTA.get(kta)
+  return []
 }
 
-// proteccion: cosas de artoteca/videoteca que alguien catalogo en LibraryThing
-// no deben insertarse como libros de biblioteca
-const normalizar = s => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
-const ltIdsOtrasTecas = new Set(otrasTecas.filter(f => f.librarything_id).map(f => String(f.librarything_id)))
-const clavesOtrasTecas = new Set(otrasTecas.map(f => `${normalizar(f.titulo)}|${normalizar(f.autor)}`))
-
-// ---- calcular diff ----
-const aBorrar = [...porLtId.entries()].filter(([lt]) => !deseado.has(lt)).map(([, f]) => f)
+// ---- calcular diff (solo insertar y actualizar; jamas borrar) ----
 const aInsertar = []
-const enOtraTeca = []
-for (const [lt, m] of deseado) {
-  if (porLtId.has(lt)) continue
-  if (ltIdsOtrasTecas.has(lt) || clavesOtrasTecas.has(`${normalizar(m.titulo)}|${normalizar(m.autor)}`)) {
-    enOtraTeca.push(m)
-    continue
-  }
-  aInsertar.push(m)
-}
 const aActualizar = []
-for (const [lt, m] of deseado) {
-  const f = porLtId.get(lt)
-  if (!f) continue
-  const patch = {}
-  for (const campo of ['titulo', 'autor', 'isbn', 'anio', 'categorias']) {
-    if (!igual(m[campo], f[campo])) patch[campo] = m[campo]
+for (const m of deseado) {
+  const existentes = encontrar(m)
+  if (!existentes.length) { aInsertar.push(m); continue }
+  for (const f of existentes) {
+    const cats = union(f.categorias, m.categorias)
+    const patch = {}
+    if (!mismasCats(cats, f.categorias)) patch.categorias = cats
+    // rellenar solo lo que este vacio, nunca pisar
+    if (!f.autor && m.autor) patch.autor = m.autor
+    if (!f.isbn && m.isbn) patch.isbn = m.isbn
+    if (!f.anio && m.anio) patch.anio = m.anio
+    if (Object.keys(patch).length) aActualizar.push({ id: f.id, titulo: f.titulo, patch })
   }
-  if (Object.keys(patch).length) aActualizar.push({ id: f.id, titulo: f.titulo, patch })
 }
 
-console.log('\n================ DIFF ================')
-console.log(`BORRAR:     ${aBorrar.length} libros (ya no estan en el catalogo limpio)`)
+console.log('\n================ DIFF (nunca borra) ================')
 console.log(`INSERTAR:   ${aInsertar.length} libros nuevos`)
-console.log(`ACTUALIZAR: ${aActualizar.length} libros con datos que cambiaron`)
-console.log(`(biblioteca sin librarything_id, no se tocan: ${sinLtId.length})`)
-if (enOtraTeca.length) {
-  console.log(`PROTEGIDOS: ${enOtraTeca.length} del export ya viven en artoteca/videoteca — NO se insertan:`)
-  enOtraTeca.forEach(m => console.log(`  ${m.titulo} — ${m.autor || 's/a'}`))
-}
-console.log('======================================\n')
+console.log(`ACTUALIZAR: ${aActualizar.length} filas ya existentes (se les agrega categoria / se rellenan vacios)`)
+console.log('====================================================\n')
 
-const muestra = (arr, fmt, n = 15) => arr.slice(0, n).forEach(x => console.log('  ' + fmt(x)))
-if (aBorrar.length) { console.log('Ejemplos a borrar:'); muestra(aBorrar, f => `${f.titulo} — ${f.autor || 's/a'}`) }
-if (aInsertar.length) { console.log('\nEjemplos a insertar:'); muestra(aInsertar, m => `${m.titulo} — ${m.autor || 's/a'}`) }
-if (aActualizar.length) { console.log('\nEjemplos a actualizar:'); muestra(aActualizar, u => `${u.titulo}: ${Object.keys(u.patch).join(', ')}`) }
+const muestra = (arr, fmt, n = 12) => arr.slice(0, n).forEach(x => console.log('  ' + fmt(x)))
+if (aInsertar.length) { console.log('Ejemplos a insertar:'); muestra(aInsertar, m => `${m.titulo} — ${m.autor || 's/a'} [${m.categorias.join(', ')}]`) }
+if (aActualizar.length) { console.log('\nEjemplos a actualizar:'); muestra(aActualizar, u => `${u.titulo}: ${Object.keys(u.patch).join(', ')}${u.patch.categorias ? ' -> ' + u.patch.categorias.join('/') : ''}`) }
 
-// reporte completo para revisar con calma
 const fecha = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
-const rutaReporte = `sync-reporte-${fecha}.json`
-writeFileSync(rutaReporte, JSON.stringify({ aBorrar, aInsertar, aActualizar }, null, 1))
-console.log(`\nReporte completo del diff: ${rutaReporte}`)
+writeFileSync(`sync-reporte-${fecha}.json`, JSON.stringify({ aInsertar, aActualizar }, null, 1))
+console.log(`\nReporte del diff: sync-reporte-${fecha}.json`)
 
 if (!APLICAR) {
   console.log('\nDRY RUN — no se toco nada. Revisa y vuelve a correr con --aplicar')
@@ -179,28 +183,16 @@ if (!APLICAR) {
 }
 
 // ---- backup completo antes de tocar ----
-const rutaBackup = `backup-libros-${fecha}.json`
-writeFileSync(rutaBackup, JSON.stringify(filas, null, 1))
-console.log(`\nBackup completo de libros: ${rutaBackup}`)
-
-// ---- borrar (respetando prestamos/selecciones) ----
-let borrados = 0
-const noBorrados = []
-for (const f of aBorrar) {
-  const { error } = await sb.from('libros').delete().eq('id', f.id)
-  if (error) noBorrados.push({ titulo: f.titulo, error: error.message })
-  else borrados++
-}
-console.log(`Borrados: ${borrados}`)
-if (noBorrados.length) {
-  console.log(`NO se pudieron borrar ${noBorrados.length} (probablemente tienen prestamos):`)
-  noBorrados.forEach(x => console.log(`  ${x.titulo}: ${x.error}`))
-}
+writeFileSync(`backup-libros-${fecha}.json`, JSON.stringify(filas, null, 1))
+console.log(`\nBackup completo de libros: backup-libros-${fecha}.json`)
 
 // ---- insertar en lotes ----
 let insertados = 0
 for (let i = 0; i < aInsertar.length; i += 500) {
-  const lote = aInsertar.slice(i, i + 500).map(m => ({ ...m, teca: 'biblioteca', disponible: true }))
+  const lote = aInsertar.slice(i, i + 500).map(m => ({
+    librarything_id: m.librarything_id, titulo: m.titulo, autor: m.autor, isbn: m.isbn,
+    anio: m.anio, categorias: m.categorias.length ? m.categorias : null, teca: 'biblioteca', disponible: true,
+  }))
   const { error } = await sb.from('libros').insert(lote)
   if (error) { console.error(`Error insertando lote ${i}: ${error.message}`); process.exit(1) }
   insertados += lote.length
@@ -208,15 +200,12 @@ for (let i = 0; i < aInsertar.length; i += 500) {
 }
 
 // ---- actualizar (en tandas de 20 en paralelo) ----
-let actualizados = 0, fallosUpd = 0
+let actualizados = 0, fallos = 0
 for (let i = 0; i < aActualizar.length; i += 20) {
   const tanda = aActualizar.slice(i, i + 20)
-  const resultados = await Promise.all(
-    tanda.map(u => sb.from('libros').update(u.patch).eq('id', u.id))
-  )
-  for (const r of resultados) r.error ? fallosUpd++ : actualizados++
-  if ((i / 20) % 25 === 0) console.log(`Actualizados ${actualizados}/${aActualizar.length}`)
+  const res = await Promise.all(tanda.map(u => sb.from('libros').update(u.patch).eq('id', u.id)))
+  for (const r of res) r.error ? fallos++ : actualizados++
 }
-console.log(`Actualizados: ${actualizados}, fallos: ${fallosUpd}`)
+console.log(`Actualizados: ${actualizados}, fallos: ${fallos}`)
 
-console.log('\nListo. La tabla libros quedo sincronizada con el catalogo limpio.')
+console.log('\nListo. Se agrego lo nuevo sin borrar nada.')
