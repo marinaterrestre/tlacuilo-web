@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { comprimirImagen } from '@/lib/imagen'
 import TecaLayout from '@/components/TecaLayout'
 import AdminNav from '@/components/AdminNav'
+import PausarSeccion from '@/components/PausarSeccion'
 import Cover from '@/components/Cover'
 
 type Libro = {
@@ -456,6 +457,8 @@ export default function AdminLibrosPage() {
         <p className="text-text-dim mb-8 text-[clamp(13px,1vw,15px)]">
           subir portadas, agregar libros, marcar joyas, controlar disponibilidad · <span className="font-mono">{total.toLocaleString('es-MX')}</span> libros aprox.
         </p>
+
+        <PausarSeccion />
 
         {/* TOOLBAR · search + chip filters + CTA agregar */}
         <div className="border-t border-rule pt-5 mb-6 flex flex-wrap items-center gap-3">
