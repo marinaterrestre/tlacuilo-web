@@ -6,6 +6,11 @@ const SITE_URL = 'https://www.tlacuilo.org'
 const TANDA = 100
 const TANDA_MAX = 100
 
+// Las 567 filas de la lista vieja se importaron con estado 'espera', pero el
+// default de la columna y el resto del codigo dicen 'pendiente'. Las dos
+// significan lo mismo: todavia no le hemos mandado a esa persona.
+const SIN_MANDAR = ['pendiente', 'espera']
+
 export const maxDuration = 60
 
 type Fila = { id: string; correo: string; token: string }
@@ -58,7 +63,7 @@ export async function GET(req: NextRequest) {
   const { data: candidatas, error: errSel } = await admin
     .from('lista_lanzamiento')
     .select('id')
-    .eq('estado', 'pendiente')
+    .in('estado', SIN_MANDAR)
     .order('created_at', { ascending: true })
     .limit(tanda)
 
@@ -78,7 +83,7 @@ export async function GET(req: NextRequest) {
     .from('lista_lanzamiento')
     .update({ estado: 'enviando' })
     .in('id', candidatas.map((c) => c.id))
-    .eq('estado', 'pendiente')
+    .in('estado', SIN_MANDAR)
     .select('id, correo, token')
 
   if (errClaim) {
@@ -153,7 +158,7 @@ export async function GET(req: NextRequest) {
   const { count: faltan } = await admin
     .from('lista_lanzamiento')
     .select('id', { count: 'exact', head: true })
-    .eq('estado', 'pendiente')
+    .in('estado', SIN_MANDAR)
 
   return NextResponse.json({ ok: true, enviados: filas.length, faltan: faltan ?? null })
 }
