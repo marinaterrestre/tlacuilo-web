@@ -4,6 +4,7 @@ import { emailLanzamiento } from '@/lib/emails/lanzamiento'
 
 const SITE_URL = 'https://www.tlacuilo.org'
 const TANDA = 100
+const TANDA_MAX = 100
 
 export const maxDuration = 60
 
@@ -41,6 +42,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'falta RESEND_API_KEY' }, { status: 500 })
   }
 
+  // ?n=10 manda una tanda mas chica. Sirve para probar con poca gente y para
+  // no pasarse del tope diario de Resend, que en el plan gratis son 100 al dia
+  // contando los del resumen del equipo.
+  const pedido = Number(req.nextUrl.searchParams.get('n'))
+  const tanda =
+    Number.isInteger(pedido) && pedido > 0 ? Math.min(pedido, TANDA_MAX) : TANDA
+
   const admin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -52,7 +60,7 @@ export async function GET(req: NextRequest) {
     .select('id')
     .eq('estado', 'pendiente')
     .order('created_at', { ascending: true })
-    .limit(TANDA)
+    .limit(tanda)
 
   if (errSel) {
     return NextResponse.json({ error: errSel.message }, { status: 500 })
